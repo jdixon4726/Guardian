@@ -76,13 +76,17 @@ Guardian's design is informed by and maps to several existing frameworks:
 
 ## What Guardian Is Not
 
+Guardian is not a policy engine. Tools like Open Policy Agent, HashiCorp Sentinel, and AWS Service Control Policies evaluate individual requests against static rules — "is this allowed?" Guardian answers a different question: "Is this *normal* for this actor, right now, in this context?" Guardian complements policy engines by providing the behavioral intelligence they cannot — and exposes that intelligence to them via the PolicyProvider interface.
+
 Guardian is not a SIEM. It does not aggregate logs from other systems or perform correlation across events it did not observe.
 
 Guardian is not an IAM system. It does not manage identities or issue credentials. It evaluates proposed actions made by already-authenticated actors.
 
 Guardian is not a WAF or network security control. It operates at the operational action layer, not the network or API layer.
 
-Guardian is designed to *complement* these systems — to be the governance layer that sees the action intent before it executes, rather than the detection layer that sees the effect after.
+Guardian is not an enforcer. It plugs into enforcement points that already exist — Terraform Cloud run tasks, Kubernetes admission webhooks, CI/CD pipeline gates. Guardian is the brain; the calling system is the muscle.
+
+Guardian is designed to *complement* these systems — to be the behavioral governance layer that sees the action intent before it executes, enriched by the actor's full behavioral history.
 
 ---
 

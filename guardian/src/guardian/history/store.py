@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from guardian.config.model import TrustConfig
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA = """
@@ -38,12 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_hist_actor_decision
     ON action_history(actor_name, decision);
 """
 
-# Trust level thresholds
-_TRUST_MIN_ACTIONS = 10          # minimum actions before trust can rise above base
-_TRUST_BLOCK_PENALTY = 0.05      # per block in window
-_TRUST_REVIEW_PENALTY = 0.02     # per review in window
-_TRUST_ALLOW_BONUS = 0.005       # per clean allow in window
-_TRUST_WINDOW_DAYS = 30
+_DEFAULT_TRUST = TrustConfig()
 
 
 @dataclass
@@ -67,8 +64,10 @@ class ActorProfile:
 class ActorHistoryStore:
     """SQLite-backed append-only actor history store."""
 
-    def __init__(self, db_path: Path | str = ":memory:"):
+    def __init__(self, db_path: Path | str = ":memory:",
+                 trust_config: TrustConfig | None = None):
         self._db_path = str(db_path)
+        self._trust = trust_config or _DEFAULT_TRUST
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
@@ -199,12 +198,13 @@ class ActorHistoryStore:
 
         New actors start at 0.5 (neutral). Trust builds with clean allows
         and degrades with blocks and reviews, computed over a rolling window.
-        Actors with fewer than _TRUST_MIN_ACTIONS cannot exceed 0.5.
+        Actors with fewer than min_actions cannot exceed 0.5.
         """
+        cfg = self._trust
         if total_actions == 0:
             return 0.5
 
-        cutoff = (now - timedelta(days=_TRUST_WINDOW_DAYS)).isoformat()
+        cutoff = (now - timedelta(days=cfg.window_days)).isoformat()
         rows = self._conn.execute(
             "SELECT decision FROM action_history "
             "WHERE actor_name = ? AND timestamp >= ?",
@@ -218,14 +218,14 @@ class ActorHistoryStore:
         for r in rows:
             d = r["decision"]
             if d == "block":
-                trust -= _TRUST_BLOCK_PENALTY
+                trust -= cfg.block_penalty
             elif d == "require_review":
-                trust -= _TRUST_REVIEW_PENALTY
+                trust -= cfg.review_penalty
             elif d in ("allow", "allow_with_logging"):
-                trust += _TRUST_ALLOW_BONUS
+                trust += cfg.allow_bonus
 
         # Cap at 0.5 for actors without enough history
-        if total_actions < _TRUST_MIN_ACTIONS:
+        if total_actions < cfg.min_actions:
             trust = min(trust, 0.5)
 
         return round(max(0.0, min(1.0, trust)), 3)

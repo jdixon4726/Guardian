@@ -192,6 +192,10 @@ class PolicyEngine:
             explanation="No policy rule matched this action. Defaulting to require_review."
         )
 
+    def health_check(self) -> bool:
+        """Built-in policy engine is always healthy."""
+        return True
+
     def _resolve_conflicts(self, verdicts: list[PolicyVerdict]) -> PolicyVerdict:
         """
         Conflict resolution: most restrictive verdict wins.

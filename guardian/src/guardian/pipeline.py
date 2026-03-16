@@ -5,15 +5,15 @@ Wires all evaluation stages into a single evaluate() call.
 This is the main entry point for all action request evaluation.
 
 Stage order:
-  1. Identity Attestation  — fail fast on unknown/terminated/spoofing actors
-  2. Context Enrichment    — asset, window, history (trust + velocity) signals
-  3. Drift Detection       — behavioral baseline comparison (Phase 2.5)
-  4. Policy Engine         — deny → conditional → allow evaluation
-  5. Risk Scoring Engine   — composite signal scoring (drift feeds context scorer)
-  6. Decision Engine       — policy × risk → final decision
-  7. Audit Logger          — write tamper-evident entry
-  8. Actor History Store   — record evaluation for trust and velocity tracking
-  9. Alert Publisher       — drift alerts (fire-and-forget)
+  1. Identity Attestation       — fail fast on unknown/terminated/spoofing actors
+  2. Context Enrichment         — asset, window, history (trust + velocity) signals
+  3. Behavioral Assessment      — drift, trust, velocity → BehavioralAssessment
+  4. Policy Evaluation          — via PolicyProvider (built-in or OPA)
+  5. Risk Scoring Engine        — composite signal scoring
+  6. Decision Engine            — policy × risk → final decision
+  7. Audit Logger               — write tamper-evident entry
+  8. Actor History Store        — record evaluation for trust and velocity tracking
+  9. Alert Publisher            — drift alerts (fire-and-forget)
 """
 
 from __future__ import annotations
@@ -23,6 +23,9 @@ from pathlib import Path
 
 from guardian.attestation.attestor import ActorRegistry, IdentityAttestor
 from guardian.audit.logger import AuditLogger
+from guardian.behavioral.engine import BehavioralIntelligenceEngine
+from guardian.config.loader import load_config
+from guardian.config.model import GuardianConfig
 from guardian.decision.engine import DecisionEngine
 from guardian.drift.alerts import AlertPublisher
 from guardian.drift.baseline import BaselineStore
@@ -38,7 +41,7 @@ from guardian.models.action_request import (
 )
 from guardian.policy.engine import PolicyEngine
 from guardian.policy.loaders import PolicyLoader
-from guardian.scoring.engine import RiskScoringEngine, action_scorer, actor_scorer
+from guardian.scoring.engine import RiskScoringEngine
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +62,24 @@ class GuardianPipeline:
         baseline_store: BaselineStore | None = None,
         alert_publisher: AlertPublisher | None = None,
         history_store: ActorHistoryStore | None = None,
+        config: GuardianConfig | None = None,
     ):
-        self.history_store = history_store or ActorHistoryStore()
+        cfg = config or GuardianConfig()
+        self.config = cfg
+        self.history_store = history_store or ActorHistoryStore(trust_config=cfg.trust)
         self.attestor = IdentityAttestor(actor_registry)
         self.enricher = ContextEnricher(asset_catalog, window_store, self.history_store)
         self.policy_engine = policy_engine
-        self.risk_engine = RiskScoringEngine()
-        self.decision_engine = DecisionEngine()
+        self.risk_engine = RiskScoringEngine(config=cfg.scoring)
+        self.decision_engine = DecisionEngine(config=cfg.decision)
         self.audit_logger = audit_logger
         self.baseline_store = baseline_store or BaselineStore()
-        self.drift_engine = DriftDetectionEngine(self.baseline_store)
+        self.drift_engine = DriftDetectionEngine(self.baseline_store, config=cfg.drift)
+        self.behavioral_engine = BehavioralIntelligenceEngine(
+            drift_engine=self.drift_engine,
+            history_store=self.history_store,
+            config=cfg,
+        )
         self.alert_publisher = alert_publisher or AlertPublisher()
 
     def evaluate(self, request: ActionRequest) -> Decision:
@@ -92,22 +103,13 @@ class GuardianPipeline:
         # Stage 2: Context Enrichment
         context = self.enricher.enrich(request, attestation)
 
-        # Stage 3: Drift Detection — behavioral baseline comparison
-        # We need a preliminary risk score for drift evaluation. Use the action
-        # and actor scorers only (before context scorer, which depends on drift).
-        prelim_risk = (
-            action_scorer(context).score * 0.55
-            + actor_scorer(context).score * 0.45
-        )
-        drift = self.drift_engine.evaluate(
-            actor_name=request.actor_name,
-            action_type=request.requested_action,
-            current_risk=prelim_risk,
-            timestamp=request.timestamp,
-        )
+        # Stage 3: Behavioral Assessment (Guardian's core differentiator)
+        assessment = self.behavioral_engine.assess(context)
+        drift = assessment.drift_score
 
-        # Stage 4: Policy Engine
+        # Stage 4: Policy Evaluation — behavioral context injected
         policy_context = context.to_policy_context()
+        policy_context.update(assessment.to_policy_context())
         policy_verdict = self.policy_engine.evaluate(policy_context)
 
         # Stage 5: Risk Scoring
@@ -173,8 +175,12 @@ class GuardianPipeline:
                     audit_log_path: Path) -> "GuardianPipeline":
         """
         Construct a GuardianPipeline from directory paths.
+        Loads guardian.yaml for all tunable parameters.
         Raises RuntimeError on any invalid configuration.
         """
+        # Load master config (defaults if guardian.yaml absent)
+        config = load_config(config_dir)
+
         actor_registry = ActorRegistry(config_dir / "actor-registry.yaml")
         asset_catalog = AssetCatalog(config_dir / "asset-catalog.yaml")
         window_store = MaintenanceWindowStore(config_dir / "maintenance-windows.yaml")
@@ -193,7 +199,7 @@ class GuardianPipeline:
 
         # Actor history store
         history_db = audit_log_path.parent / "actor-history.sqlite"
-        history_store = ActorHistoryStore(history_db)
+        history_store = ActorHistoryStore(history_db, trust_config=config.trust)
 
         return cls(
             actor_registry=actor_registry,
@@ -204,4 +210,5 @@ class GuardianPipeline:
             baseline_store=baseline_store,
             alert_publisher=alert_publisher,
             history_store=history_store,
+            config=config,
         )

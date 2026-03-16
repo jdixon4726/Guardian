@@ -5,11 +5,8 @@ Computes a [0.0, 1.0] risk score from four independent scorers.
 Each scorer returns a (score, signals) tuple.
 Signals are human-readable strings passed to the Explanation Layer.
 
-Scorer weights:
-  action_scorer:  0.30
-  actor_scorer:   0.25
-  asset_scorer:   0.25
-  context_scorer: 0.20
+All action categories, weights, and thresholds are loaded from
+GuardianConfig at startup. Defaults match the original hardcoded values.
 """
 
 from __future__ import annotations
@@ -17,6 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from guardian.config.model import GuardianConfig, ScoringConfig
 from guardian.enrichment.context import EnrichedContext
 from guardian.models.action_request import (
     ActorType,
@@ -27,41 +25,8 @@ from guardian.models.action_request import (
 
 logger = logging.getLogger(__name__)
 
-# Actions grouped by risk category
-_DESTRUCTIVE_ACTIONS = {
-    "delete_resource", "destroy_infrastructure", "drop_database",
-    "wipe_storage", "terminate_instances", "delete_vpc",
-}
-_SECURITY_CONTROL_ACTIONS = {
-    "disable_endpoint_protection", "disable_antivirus", "disable_edr",
-    "modify_security_policy", "remove_security_tool", "disable_firewall",
-}
-_PRIVILEGE_ACTIONS = {
-    "modify_iam_role", "escalate_privileges", "grant_admin_access",
-    "add_user_to_group", "create_service_account",
-}
-_DATA_EXFIL_ACTIONS = {
-    "export_data", "download_pii", "copy_database", "backup_to_external",
-}
-_MODERATE_ACTIONS = {
-    "modify_firewall_rule", "modify_security_group", "update_network_acl",
-    "change_configuration", "restart_service",
-}
-
-_CRITICALITY_WEIGHTS = {
-    "low": 0.1,
-    "medium": 0.3,
-    "high": 0.6,
-    "critical": 0.9,
-}
-
-_SENSITIVITY_WEIGHTS = {
-    SensitivityLevel.public: 0.0,
-    SensitivityLevel.internal: 0.2,
-    SensitivityLevel.confidential: 0.6,
-    SensitivityLevel.high: 0.7,
-    SensitivityLevel.restricted: 0.9,
-}
+# Default config used by module-level scorer functions (for backward compat)
+_DEFAULT_CONFIG = ScoringConfig()
 
 
 @dataclass
@@ -70,48 +35,47 @@ class ScorerResult:
     signals: list[RiskSignal]
 
 
-def action_scorer(context: EnrichedContext) -> ScorerResult:
+def _resolve_action_category(
+    action: str, cfg: ScoringConfig,
+) -> tuple[str | None, float]:
+    """Find which category an action belongs to. Returns (category, score)."""
+    for category, actions in cfg.action_categories.items():
+        if action in actions:
+            return category, cfg.action_category_scores.get(
+                category, cfg.baseline_action_score,
+            )
+    return None, cfg.baseline_action_score
+
+
+_CATEGORY_LABELS = {
+    "destructive": "Destructive action '{action}' — highest risk category",
+    "security_control": "Security control modification '{action}' — direct attack surface",
+    "privilege": "Privilege modification action '{action}'",
+    "data_exfil": "Data export/exfiltration action '{action}'",
+    "moderate": "Infrastructure modification action '{action}'",
+}
+
+
+def action_scorer(
+    context: EnrichedContext, cfg: ScoringConfig = _DEFAULT_CONFIG,
+) -> ScorerResult:
     """Score based on the type and destructiveness of the requested action."""
     action = context.request.requested_action
     signals = []
-    score = 0.2  # baseline
 
-    if action in _DESTRUCTIVE_ACTIONS:
-        score = 0.90
+    category, score = _resolve_action_category(action, cfg)
+
+    if category is not None:
+        label = _CATEGORY_LABELS.get(
+            category, f"Action category '{category}': '{{action}}'",
+        ).format(action=action)
         signals.append(RiskSignal(
             source="action_scorer",
-            description=f"Destructive action '{action}' — highest risk category",
-            contribution=0.70,
-        ))
-    elif action in _SECURITY_CONTROL_ACTIONS:
-        score = 0.85
-        signals.append(RiskSignal(
-            source="action_scorer",
-            description=f"Security control modification '{action}' — direct attack surface",
-            contribution=0.65,
-        ))
-    elif action in _PRIVILEGE_ACTIONS:
-        score = 0.70
-        signals.append(RiskSignal(
-            source="action_scorer",
-            description=f"Privilege modification action '{action}'",
-            contribution=0.50,
-        ))
-    elif action in _DATA_EXFIL_ACTIONS:
-        score = 0.75
-        signals.append(RiskSignal(
-            source="action_scorer",
-            description=f"Data export/exfiltration action '{action}'",
-            contribution=0.55,
-        ))
-    elif action in _MODERATE_ACTIONS:
-        score = 0.45
-        signals.append(RiskSignal(
-            source="action_scorer",
-            description=f"Infrastructure modification action '{action}'",
-            contribution=0.25,
+            description=label,
+            contribution=round(score - cfg.baseline_action_score, 2),
         ))
     else:
+        score = cfg.baseline_action_score
         signals.append(RiskSignal(
             source="action_scorer",
             description=f"Unknown action '{action}' — applying baseline risk",
@@ -137,34 +101,25 @@ def action_scorer(context: EnrichedContext) -> ScorerResult:
     return ScorerResult(score=round(score, 3), signals=signals)
 
 
-def actor_scorer(context: EnrichedContext) -> ScorerResult:
+def actor_scorer(
+    context: EnrichedContext, cfg: ScoringConfig = _DEFAULT_CONFIG,
+) -> ScorerResult:
     """Score based on actor type, trust level, and history."""
     signals = []
-    score = 0.2
 
     actor_type = context.request.actor_type
+    score = cfg.actor_type_scores.get(actor_type.value, 0.20)
 
-    if actor_type == ActorType.ai_agent:
-        score = 0.55
-        signals.append(RiskSignal(
-            source="actor_scorer",
-            description="Actor type is AI agent — elevated inherent risk for privileged actions",
-            contribution=0.35,
-        ))
-    elif actor_type == ActorType.automation:
-        score = 0.35
-        signals.append(RiskSignal(
-            source="actor_scorer",
-            description="Actor type is automation account",
-            contribution=0.15,
-        ))
-    else:
-        score = 0.20
-        signals.append(RiskSignal(
-            source="actor_scorer",
-            description="Actor type is human operator",
-            contribution=0.00,
-        ))
+    type_labels = {
+        ActorType.ai_agent: "Actor type is AI agent — elevated inherent risk for privileged actions",
+        ActorType.automation: "Actor type is automation account",
+        ActorType.human: "Actor type is human operator",
+    }
+    signals.append(RiskSignal(
+        source="actor_scorer",
+        description=type_labels.get(actor_type, f"Actor type: {actor_type.value}"),
+        contribution=round(score - 0.20, 2),
+    ))
 
     # History signals
     history = context.actor_history
@@ -217,12 +172,16 @@ def actor_scorer(context: EnrichedContext) -> ScorerResult:
     return ScorerResult(score=round(score, 3), signals=signals)
 
 
-def asset_scorer(context: EnrichedContext) -> ScorerResult:
+def asset_scorer(
+    context: EnrichedContext, cfg: ScoringConfig = _DEFAULT_CONFIG,
+) -> ScorerResult:
     """Score based on asset criticality and sensitivity classification."""
     signals = []
 
-    criticality_score = _CRITICALITY_WEIGHTS.get(context.asset.criticality, 0.3)
-    sensitivity_score = _SENSITIVITY_WEIGHTS.get(context.request.sensitivity_level, 0.2)
+    criticality_score = cfg.criticality_weights.get(context.asset.criticality, 0.3)
+    sensitivity_score = cfg.sensitivity_weights.get(
+        context.request.sensitivity_level.value, 0.2,
+    )
     score = (criticality_score * 0.5) + (sensitivity_score * 0.5)
 
     signals.append(RiskSignal(
@@ -245,8 +204,11 @@ def asset_scorer(context: EnrichedContext) -> ScorerResult:
     return ScorerResult(score=round(score, 3), signals=signals)
 
 
-def context_scorer(context: EnrichedContext,
-                   drift_score: float = 0.0) -> ScorerResult:
+def context_scorer(
+    context: EnrichedContext,
+    drift_score: float = 0.0,
+    cfg: ScoringConfig = _DEFAULT_CONFIG,
+) -> ScorerResult:
     """Score based on maintenance window, action velocity, and behavioral drift."""
     signals = []
     score = 0.3  # baseline outside window
@@ -272,7 +234,7 @@ def context_scorer(context: EnrichedContext,
     hourly = context.actor_history.actions_last_hour
     daily = context.actor_history.actions_last_day
 
-    if hourly > 50:
+    if hourly > cfg.velocity_hourly_extreme:
         addition = 0.25
         score = min(1.0, score + addition)
         signals.append(RiskSignal(
@@ -280,7 +242,7 @@ def context_scorer(context: EnrichedContext,
             description=f"Extreme hourly velocity: {hourly} actions in last hour",
             contribution=addition,
         ))
-    elif hourly > 20:
+    elif hourly > cfg.velocity_hourly_high:
         addition = 0.15
         score = min(1.0, score + addition)
         signals.append(RiskSignal(
@@ -289,7 +251,7 @@ def context_scorer(context: EnrichedContext,
             contribution=addition,
         ))
 
-    if daily > 200:
+    if daily > cfg.velocity_daily_high:
         addition = 0.10
         score = min(1.0, score + addition)
         signals.append(RiskSignal(
@@ -324,28 +286,26 @@ class RiskScoringEngine:
     """
     Combines the four scorers into a weighted composite risk score.
 
-    Weights: action=0.30, actor=0.25, asset=0.25, context=0.20
+    Accepts a ScoringConfig for all tunables. Defaults match the
+    original hardcoded values when no config is provided.
     """
 
-    WEIGHTS = {
-        "action": 0.30,
-        "actor": 0.25,
-        "asset": 0.25,
-        "context": 0.20,
-    }
+    def __init__(self, config: ScoringConfig | None = None):
+        self.cfg = config or ScoringConfig()
+        self.weights = self.cfg.weights
 
     def score(self, context: EnrichedContext,
               drift_score: float = 0.0) -> tuple[float, list[RiskSignal]]:
         results = {
-            "action": action_scorer(context),
-            "actor": actor_scorer(context),
-            "asset": asset_scorer(context),
-            "context": context_scorer(context, drift_score),
+            "action": action_scorer(context, self.cfg),
+            "actor": actor_scorer(context, self.cfg),
+            "asset": asset_scorer(context, self.cfg),
+            "context": context_scorer(context, drift_score, self.cfg),
         }
 
         weighted = sum(
-            results[key].score * self.WEIGHTS[key]
-            for key in self.WEIGHTS
+            results[key].score * self.weights[key]
+            for key in self.weights
         )
         final = round(min(1.0, max(0.0, weighted)), 3)
 

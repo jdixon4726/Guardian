@@ -24,18 +24,20 @@ import logging
 import math
 from datetime import datetime, timezone
 
+from guardian.config.model import DriftConfig
 from guardian.drift.baseline import ActorBaseline, BaselineStore
 from guardian.models.action_request import DriftScore
 
 logger = logging.getLogger(__name__)
 
-# Thresholds
-Z_SCORE_ALERT_THRESHOLD = 2.5    # standard deviations to trigger alert
-Z_SCORE_WARN_THRESHOLD = 2.0     # standard deviations for elevated signal
-JS_ALERT_THRESHOLD = 0.35        # JS divergence to trigger alert
-JS_WARN_THRESHOLD = 0.20         # JS divergence for elevated signal
-REGULARITY_THRESHOLD = 0.10      # coefficient of variation below which regularity is flagged
-MIN_OBSERVATIONS = 5             # minimum observations before drift scoring activates
+# Default thresholds (used when no config provided, and for backward compat imports)
+_DEFAULT_DRIFT = DriftConfig()
+Z_SCORE_ALERT_THRESHOLD = _DEFAULT_DRIFT.z_score_alert_threshold
+Z_SCORE_WARN_THRESHOLD = _DEFAULT_DRIFT.z_score_warn_threshold
+JS_ALERT_THRESHOLD = _DEFAULT_DRIFT.js_alert_threshold
+JS_WARN_THRESHOLD = _DEFAULT_DRIFT.js_warn_threshold
+REGULARITY_THRESHOLD = _DEFAULT_DRIFT.regularity_threshold
+MIN_OBSERVATIONS = _DEFAULT_DRIFT.min_observations
 
 
 def _jensen_shannon_divergence(p: dict[str, float], q: dict[str, float]) -> float:
@@ -83,9 +85,9 @@ def _compute_level_drift_z(
     """
     if not baseline.has_baseline:
         return 0.0
-    # Floor stddev at 0.01 so near-zero-variance actors still produce
+    # Floor stddev so near-zero-variance actors still produce
     # meaningful z-scores when risk deviates from the mean.
-    effective_stddev = max(baseline.stddev_risk, 0.01)
+    effective_stddev = max(baseline.stddev_risk, _DEFAULT_DRIFT.stddev_floor)
     return (current_risk - baseline.mean_risk) / effective_stddev
 
 
@@ -125,8 +127,10 @@ class DriftDetectionEngine:
     stateless — all state lives in the store.
     """
 
-    def __init__(self, baseline_store: BaselineStore):
+    def __init__(self, baseline_store: BaselineStore,
+                 config: DriftConfig | None = None):
         self.store = baseline_store
+        self.cfg = config or DriftConfig()
 
     def evaluate(
         self,
@@ -145,6 +149,8 @@ class DriftDetectionEngine:
 
         baseline = self.store.get_baseline(actor_name)
 
+        cfg = self.cfg
+
         if not baseline.has_baseline:
             # Not enough history — record and return neutral
             self.store.record_observation(
@@ -158,7 +164,7 @@ class DriftDetectionEngine:
                 alert_triggered=False,
                 explanation=(
                     f"Insufficient baseline for actor '{actor_name}' "
-                    f"({baseline.observation_count}/{MIN_OBSERVATIONS} observations). "
+                    f"({baseline.observation_count}/{cfg.min_observations} observations). "
                     "Drift detection inactive."
                 ),
             )
@@ -168,7 +174,7 @@ class DriftDetectionEngine:
         js_divergence = _compute_pattern_drift(action_type, baseline)
 
         # Regularity detection
-        regularity_flag = baseline.variance_score < REGULARITY_THRESHOLD
+        regularity_flag = baseline.variance_score < cfg.regularity_threshold
 
         # Composite drift score: weighted combination
         # z-score component: normalized to [0, 1] using sigmoid-like mapping
@@ -186,31 +192,31 @@ class DriftDetectionEngine:
 
         # Alert determination
         alert = (
-            z_abs >= Z_SCORE_ALERT_THRESHOLD
-            or js_divergence >= JS_ALERT_THRESHOLD
-            or (regularity_flag and z_abs >= Z_SCORE_WARN_THRESHOLD)
+            z_abs >= cfg.z_score_alert_threshold
+            or js_divergence >= cfg.js_alert_threshold
+            or (regularity_flag and z_abs >= cfg.z_score_warn_threshold)
         )
 
         # Build explanation
         explanation_parts = []
 
-        if z_abs >= Z_SCORE_ALERT_THRESHOLD:
+        if z_abs >= cfg.z_score_alert_threshold:
             direction = "above" if z_score > 0 else "below"
             explanation_parts.append(
                 f"Risk level {z_score:+.2f}σ {direction} baseline mean "
                 f"({baseline.mean_risk:.3f} ± {baseline.stddev_risk:.3f})"
             )
-        elif z_abs >= Z_SCORE_WARN_THRESHOLD:
+        elif z_abs >= cfg.z_score_warn_threshold:
             explanation_parts.append(
                 f"Risk level elevated at {z_score:+.2f}σ from baseline"
             )
 
-        if js_divergence >= JS_ALERT_THRESHOLD:
+        if js_divergence >= cfg.js_alert_threshold:
             explanation_parts.append(
                 f"Action pattern divergence {js_divergence:.3f} — "
                 "significant deviation from established behavior"
             )
-        elif js_divergence >= JS_WARN_THRESHOLD:
+        elif js_divergence >= cfg.js_warn_threshold:
             explanation_parts.append(
                 f"Action pattern divergence {js_divergence:.3f} — "
                 "moderate deviation from baseline"

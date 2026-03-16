@@ -11,9 +11,9 @@
 - [ ] Decision semantics document
 - [ ] Compliance mapping document
 - [ ] Scenario library (15+ documented scenarios)
-- [ ] Actor registry schema (YAML)
-- [ ] Asset catalog schema (YAML)
-- [ ] Maintenance window schema (YAML)
+- [x] Actor registry schema (YAML)
+- [x] Asset catalog schema (YAML)
+- [x] Maintenance window schema (YAML)
 
 **Deliverable:** A fully documented system that a security engineer can read and evaluate before any code exists.
 
@@ -28,17 +28,17 @@
 3. Automation account requests privilege escalation → `require_review`
 
 **Components:**
-- [ ] `ActionRequest` Pydantic model with full field validation
-- [ ] `ActorType`, `PrivilegeLevel`, `SensitivityLevel` enums
-- [ ] Identity Attestation with YAML-backed actor registry
-- [ ] Policy Engine with deny/conditional/allow rule loading from YAML
-- [ ] Four initial deny rules (AI agent security tool access, etc.)
-- [ ] Risk Scoring Engine with four scorers (action, actor, asset, context)
-- [ ] Decision Engine with policy × risk matrix
-- [ ] Audit Logger with SHA-256 hash chaining
-- [ ] `POST /v1/evaluate` FastAPI endpoint
-- [ ] Unit tests for each component
-- [ ] Adversarial tests (policy bypass attempts)
+- [x] `ActionRequest` Pydantic model with full field validation
+- [x] `ActorType`, `PrivilegeLevel`, `SensitivityLevel` enums
+- [x] Identity Attestation with YAML-backed actor registry
+- [x] Policy Engine with deny/conditional/allow rule loading from YAML
+- [x] Four initial deny rules (AI agent security tool access, etc.)
+- [x] Risk Scoring Engine with four scorers (action, actor, asset, context)
+- [x] Decision Engine with policy × risk matrix
+- [x] Audit Logger with SHA-256 hash chaining
+- [x] `POST /v1/evaluate` FastAPI endpoint
+- [x] Unit tests for each component
+- [x] Adversarial tests (policy bypass attempts)
 
 **Deliverable:** A running API that evaluates action requests and returns decisions with full audit trail.
 
@@ -80,7 +80,24 @@
 
 ---
 
-## Phase 3 — Explanation Layer
+## Phase 3 — Architecture Refocus
+*Goal: Position behavioral intelligence as the core, with pluggable policy and real-world integration.*
+
+- [x] Configurable `guardian.yaml` master config — externalize all hardcoded values
+- [x] `PolicyProvider` protocol — abstract interface for policy evaluation backends
+- [x] OPA policy provider adapter (queries external OPA instance via HTTP)
+- [x] `BehavioralIntelligenceEngine` — consolidate drift, trust, velocity into single `assess()` call
+- [x] `BehavioralAssessment` as first-class return type (trust, drift, velocity, anomaly flag)
+- [x] Pipeline restructured: behavioral assessment computed before policy, injected into policy context
+- [x] Terraform Cloud run task adapter — plan-to-ActionRequest mapper, webhook router
+- [x] Terraform resource type mappings (YAML-configurable)
+- [x] 148 tests passing (15 new Terraform mapper + 8 config loader tests)
+
+**Deliverable:** Guardian positioned as a behavioral governance layer that plugs into Terraform Cloud (and OPA) rather than replacing existing policy engines.
+
+---
+
+## Phase 4 — Explanation Layer
 *Goal: Make every decision understandable to a non-technical reviewer.*
 
 - [ ] Template-based explanation generation (policy rule → human sentence)
@@ -93,7 +110,7 @@
 
 ---
 
-## Phase 4 — Demo Interface
+## Phase 5 — Demo Interface
 *Goal: Visual demonstration of Guardian's capabilities.*
 
 - [ ] Decision feed — live stream of recent decisions with risk scores and outcomes
@@ -106,7 +123,7 @@
 
 ---
 
-## Phase 5 — Compliance Intelligence
+## Phase 6 — Compliance Intelligence
 *Goal: Transform the audit log into a continuous compliance posture report.*
 
 - [ ] Compliance Mapper: tag each decision with NIST SP 800-53 and CIS CSC control identifiers at write time
@@ -121,9 +138,11 @@
 
 ## Future Directions
 
-**Terraform Cloud run task integration** — implement the Terraform Cloud run task protocol to evaluate infrastructure-as-code changes before `terraform apply`. This is the highest-credibility real-world integration for a portfolio project.
+**Kubernetes admission webhook** — intercept pod creation and modification requests for governance evaluation. Second real-world integration point after Terraform.
 
-**Kubernetes admission webhook** — intercept pod creation and modification requests for governance evaluation.
+**CI/CD pipeline adapter** — GitHub Actions / GitLab CI events translated to ActionRequests, enabling governance gates on deployments and infrastructure changes.
+
+**Policy bundle signature verification** — GPG/cosign-signed config bundles verified at startup. Ensures config integrity in the deployment pipeline.
 
 **Learned risk model** — replace the weighted scorer with a gradient-boosted classifier trained on the synthetic scenario library, with SHAP values for interpretability.
 

@@ -1,0 +1,110 @@
+# Guardian Configuration
+# All values shown are defaults. Uncomment and modify to customize.
+
+scoring:
+  # Composite risk score weights (must sum to 1.0)
+  weights:
+    action: 0.30
+    actor: 0.25
+    asset: 0.25
+    context: 0.20
+
+  # Action categories — map your infrastructure actions to risk tiers.
+  # Actions not listed in any category get baseline_action_score.
+  action_categories:
+    destructive:
+      - delete_resource
+      - destroy_infrastructure
+      - drop_database
+      - wipe_storage
+      - terminate_instances
+      - delete_vpc
+    security_control:
+      - disable_endpoint_protection
+      - disable_antivirus
+      - disable_edr
+      - modify_security_policy
+      - remove_security_tool
+      - disable_firewall
+    privilege:
+      - modify_iam_role
+      - escalate_privileges
+      - grant_admin_access
+      - add_user_to_group
+      - create_service_account
+    data_exfil:
+      - export_data
+      - download_pii
+      - copy_database
+      - backup_to_external
+    moderate:
+      - modify_firewall_rule
+      - modify_security_group
+      - update_network_acl
+      - change_configuration
+      - restart_service
+
+  # Risk score assigned to each category
+  action_category_scores:
+    destructive: 0.90
+    security_control: 0.85
+    privilege: 0.70
+    data_exfil: 0.75
+    moderate: 0.45
+
+  # Score for actions not in any category
+  baseline_action_score: 0.20
+
+  # Base risk by actor type
+  actor_type_scores:
+    ai_agent: 0.55
+    automation: 0.35
+    human: 0.20
+
+  # Asset criticality weights
+  criticality_weights:
+    low: 0.1
+    medium: 0.3
+    high: 0.6
+    critical: 0.9
+
+  # Data sensitivity weights
+  sensitivity_weights:
+    public: 0.0
+    internal: 0.2
+    confidential: 0.6
+    high: 0.7
+    restricted: 0.9
+
+  # Velocity thresholds (actions per window)
+  velocity_hourly_extreme: 50
+  velocity_hourly_high: 20
+  velocity_daily_high: 200
+
+trust:
+  min_actions: 10          # minimum evaluations before trust can exceed 0.5
+  block_penalty: 0.05      # trust reduction per block in window
+  review_penalty: 0.02     # trust reduction per require_review
+  allow_bonus: 0.005       # trust increase per clean allow
+  window_days: 30           # rolling window for trust computation
+
+drift:
+  z_score_alert_threshold: 2.5
+  z_score_warn_threshold: 2.0
+  js_alert_threshold: 0.35
+  js_warn_threshold: 0.20
+  regularity_threshold: 0.10
+  min_observations: 5
+  stddev_floor: 0.01
+
+decision:
+  low_max: 0.30
+  medium_max: 0.60
+  high_max: 0.80
+
+policy:
+  provider: builtin        # "builtin" or "opa"
+  # opa_url: http://localhost:8181
+  # opa_policy_path: guardian/evaluate
+  # opa_timeout_seconds: 5.0
+  # opa_fallback: block    # "block" or "builtin"

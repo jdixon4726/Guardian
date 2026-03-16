@@ -16,24 +16,21 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from guardian.config.model import DecisionConfig
 from guardian.models.action_request import DecisionOutcome
 from guardian.policy.engine import PolicyVerdict
 
 logger = logging.getLogger(__name__)
 
-# Risk band thresholds
-_LOW_MAX = 0.30
-_MEDIUM_MAX = 0.60
-_HIGH_MAX = 0.80
-# > 0.80 = critical
+_DEFAULT_DECISION = DecisionConfig()
 
 
-def _risk_band(score: float) -> str:
-    if score <= _LOW_MAX:
+def _risk_band(score: float, cfg: DecisionConfig = _DEFAULT_DECISION) -> str:
+    if score <= cfg.low_max:
         return "low"
-    if score <= _MEDIUM_MAX:
+    if score <= cfg.medium_max:
         return "medium"
-    if score <= _HIGH_MAX:
+    if score <= cfg.high_max:
         return "high"
     return "critical"
 
@@ -81,12 +78,15 @@ class DecisionResult:
 class DecisionEngine:
     """Applies the policy × risk matrix to produce a final decision."""
 
+    def __init__(self, config: DecisionConfig | None = None):
+        self.cfg = config or DecisionConfig()
+
     def decide(self, policy_verdict: PolicyVerdict,
                risk_score: float,
                policy_explanation: str,
                risk_signals_summary: str) -> DecisionResult:
 
-        band = _risk_band(risk_score)
+        band = _risk_band(risk_score, self.cfg)
         policy_key = policy_verdict.outcome.value if policy_verdict.matched else "default"
 
         outcome = _MATRIX[(policy_key, band)]

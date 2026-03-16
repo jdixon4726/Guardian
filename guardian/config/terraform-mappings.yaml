@@ -1,0 +1,81 @@
+# Terraform Resource Type → Guardian Action Mappings
+#
+# Each mapping associates a Terraform resource type pattern (glob syntax)
+# with a Guardian action, sensitivity level, and target system.
+# Resources not matching any pattern get default_action / default_sensitivity.
+
+resource_mappings:
+  # Security groups and firewalls
+  - pattern: "aws_security_group*"
+    action: modify_firewall_rule
+    sensitivity: high
+    system: aws-vpc
+
+  - pattern: "aws_network_acl*"
+    action: modify_firewall_rule
+    sensitivity: high
+    system: aws-vpc
+
+  # IAM
+  - pattern: "aws_iam_role*"
+    action: modify_iam_role
+    sensitivity: restricted
+    system: aws-iam
+
+  - pattern: "aws_iam_policy*"
+    action: modify_iam_role
+    sensitivity: restricted
+    system: aws-iam
+
+  - pattern: "aws_iam_user*"
+    action: modify_iam_role
+    sensitivity: restricted
+    system: aws-iam
+
+  # Databases
+  - pattern: "aws_db_instance*"
+    action: change_configuration
+    sensitivity: restricted
+    system: rds-prod
+
+  - pattern: "aws_rds_*"
+    action: change_configuration
+    sensitivity: restricted
+    system: rds-prod
+
+  # Compute
+  - pattern: "aws_instance*"
+    action: change_configuration
+    sensitivity: high
+    system: ec2
+
+  - pattern: "aws_launch_template*"
+    action: change_configuration
+    sensitivity: high
+    system: ec2
+
+  # Storage
+  - pattern: "aws_s3_bucket*"
+    action: change_configuration
+    sensitivity: high
+    system: s3
+
+  # KMS / Encryption
+  - pattern: "aws_kms_*"
+    action: modify_security_policy
+    sensitivity: restricted
+    system: aws-kms
+
+  # VPC
+  - pattern: "aws_vpc*"
+    action: change_configuration
+    sensitivity: high
+    system: aws-vpc
+
+  - pattern: "aws_subnet*"
+    action: change_configuration
+    sensitivity: high
+    system: aws-vpc
+
+default_action: change_configuration
+default_sensitivity: internal
