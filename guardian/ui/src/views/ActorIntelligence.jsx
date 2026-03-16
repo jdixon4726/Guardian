@@ -4,6 +4,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import RiskGauge from '../components/RiskGauge'
 import PeerBar from '../components/PeerBar'
 import Sparkline from '../components/Sparkline'
+import ActivityTimeline from '../components/ActivityTimeline'
+import PatternOfLife from '../components/PatternOfLife'
+import CascadeContext from '../components/CascadeContext'
 
 function InsightCard({ severity, title, narrative }) {
   const borderColor = severity === 'critical' ? 'var(--red)'
@@ -92,6 +95,16 @@ export default function ActorIntelligence() {
 
   const { data: blastRadius } = useApi(
     `/v1/graph/actor/${searchName}/blast-radius`,
+    { enabled: !!searchName }
+  )
+
+  const { data: timeline } = useApi(
+    `/v1/actors/${searchName}/timeline?limit=150`,
+    { enabled: !!searchName }
+  )
+
+  const { data: pattern } = useApi(
+    `/v1/actors/${searchName}/pattern`,
     { enabled: !!searchName }
   )
 
@@ -234,6 +247,30 @@ export default function ActorIntelligence() {
                   </>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Activity Timeline */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Activity Timeline</span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Risk-weighted | height = risk score
+              </span>
+            </div>
+            <ActivityTimeline events={timeline?.events || []} />
+          </div>
+
+          {/* Pattern of Life + Cascade Context */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+            <div className="card">
+              <div className="card-title" style={{ marginBottom: 12 }}>Pattern of Life</div>
+              <PatternOfLife pattern={pattern?.pattern || []} />
+            </div>
+
+            <div className="card">
+              <div className="card-title" style={{ marginBottom: 12 }}>Automation Chains</div>
+              <CascadeContext actorName={searchName} />
             </div>
           </div>
 

@@ -252,3 +252,30 @@ class ActorHistoryStore:
 
         return (hour_row["cnt"] if hour_row else 0,
                 day_row["cnt"] if day_row else 0)
+
+    def get_timeline(
+        self, actor_name: str, limit: int = 200,
+    ) -> list[dict]:
+        """Return recent action history for timeline visualization."""
+        rows = self._conn.execute(
+            "SELECT action_type, target_asset, decision, risk_score, "
+            "privilege_level, timestamp FROM action_history "
+            "WHERE actor_name = ? ORDER BY timestamp DESC LIMIT ?",
+            (actor_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_hourly_pattern(self, actor_name: str) -> list[dict]:
+        """Return action counts by hour-of-day for pattern-of-life analysis."""
+        rows = self._conn.execute(
+            """SELECT
+                CAST(strftime('%%H', timestamp) AS INTEGER) as hour,
+                decision,
+                COUNT(*) as count
+            FROM action_history
+            WHERE actor_name = ?
+            GROUP BY hour, decision
+            ORDER BY hour""",
+            (actor_name,),
+        ).fetchall()
+        return [dict(r) for r in rows]

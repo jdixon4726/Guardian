@@ -315,6 +315,49 @@ def actor_profile(
     return ActorProfileResponse.from_profile(profile)
 
 
+@app.get("/v1/actors/{actor_name}/timeline")
+def actor_timeline(
+    actor_name: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Return recent action history for timeline visualization."""
+    pipeline = get_pipeline()
+    events = pipeline.history_store.get_timeline(actor_name, limit=limit)
+    return JSONResponse(content={"actor_name": actor_name, "events": events})
+
+
+@app.get("/v1/actors/{actor_name}/pattern")
+def actor_pattern(
+    actor_name: str,
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Return hourly activity pattern for pattern-of-life analysis."""
+    pipeline = get_pipeline()
+    pattern = pipeline.history_store.get_hourly_pattern(actor_name)
+
+    # Build a 24-hour grid with decision breakdown
+    hours = {}
+    for row in pattern:
+        h = row["hour"]
+        if h not in hours:
+            hours[h] = {"hour": h, "total": 0, "allow": 0, "block": 0, "require_review": 0, "allow_with_logging": 0}
+        hours[h]["total"] += row["count"]
+        decision = row["decision"]
+        if decision in hours[h]:
+            hours[h][decision] += row["count"]
+
+    # Fill missing hours
+    grid = []
+    for h in range(24):
+        if h in hours:
+            grid.append(hours[h])
+        else:
+            grid.append({"hour": h, "total": 0, "allow": 0, "block": 0, "require_review": 0, "allow_with_logging": 0})
+
+    return JSONResponse(content={"actor_name": actor_name, "pattern": grid})
+
+
 @app.get("/v1/audit/verify")
 def audit_verify(
     _auth: None = Depends(verify_api_key),
