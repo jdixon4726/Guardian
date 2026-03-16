@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# SQLite databases (generated at runtime)
+*.sqlite
+
+# Test artifacts
+tests/test-audit.jsonl
+tests/test-adversarial-audit.jsonl
+tests/test-drift-audit.jsonl
+tests/drift-alerts.jsonl
+tests/actor-history.sqlite
+tests/baselines.sqlite
+
+# Runtime artifacts
+audit.jsonl
+drift-alerts.jsonl
+actor-history.sqlite
+baselines.sqlite
+
+# Bundle signatures (generated, not committed)
+config/bundle-manifest.json
+config/bundle.sig
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Environment
+.env
+.env.local
+*.pem
+*.key
+
+# Misc
+Untitled-1.txt

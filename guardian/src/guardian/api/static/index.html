@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardian — Behavioral Governance Dashboard</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-muted: #8b949e;
+            --accent: #58a6ff;
+            --green: #3fb950;
+            --yellow: #d29922;
+            --orange: #db6d28;
+            --red: #f85149;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+        header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 { font-size: 20px; font-weight: 600; }
+        header h1 span { color: var(--accent); }
+        .status-badge {
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        .status-ok { background: #238636; color: #fff; }
+        .status-shadow { background: var(--yellow); color: #000; }
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+            padding: 0 24px;
+        }
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            color: var(--text-muted);
+            border-bottom: 2px solid transparent;
+            font-size: 14px;
+        }
+        .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+        .tab:hover { color: var(--text); }
+        main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        /* Decision Feed */
+        .decision-row {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 8px;
+            display: grid;
+            grid-template-columns: 90px 1fr 100px 80px 80px;
+            align-items: center;
+            gap: 16px;
+        }
+        .decision-badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        .decision-allow { background: #238636; color: #fff; }
+        .decision-allow_with_logging { background: #1f6feb; color: #fff; }
+        .decision-require_review { background: var(--yellow); color: #000; }
+        .decision-block { background: var(--red); color: #fff; }
+        .risk-low { color: var(--green); }
+        .risk-medium { color: var(--yellow); }
+        .risk-high { color: var(--orange); }
+        .risk-critical { color: var(--red); }
+        .actor-name { font-weight: 600; color: var(--accent); }
+        .action-detail { color: var(--text-muted); font-size: 13px; }
+        .time-stamp { color: var(--text-muted); font-size: 12px; }
+
+        /* Actor Profile */
+        .profile-header {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+        .profile-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .stat-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-value { font-size: 28px; font-weight: 700; }
+        .stat-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
+        .trust-bar {
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .trust-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        /* Search */
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .search-bar input, .search-bar select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .search-bar input { flex: 1; }
+        .search-bar button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        /* Refresh indicator */
+        .refresh-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+        .auto-refresh { cursor: pointer; color: var(--accent); }
+        .loading { opacity: 0.5; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span>Guardian</span> Governance Dashboard</h1>
+        <div>
+            <span id="health-badge" class="status-badge status-ok">Healthy</span>
+        </div>
+    </header>
+
+    <div class="tabs">
+        <div class="tab active" onclick="showPanel('decisions')">Decision Feed</div>
+        <div class="tab" onclick="showPanel('profile')">Actor Profile</div>
+    </div>
+
+    <main>
+        <!-- Decision Feed Panel -->
+        <div id="decisions" class="panel active">
+            <div class="search-bar">
+                <input type="text" id="actor-filter" placeholder="Filter by actor name...">
+                <select id="decision-filter">
+                    <option value="">All decisions</option>
+                    <option value="block">Block</option>
+                    <option value="require_review">Require Review</option>
+                    <option value="allow_with_logging">Allow with Logging</option>
+                    <option value="allow">Allow</option>
+                </select>
+                <button onclick="loadDecisions()">Search</button>
+            </div>
+            <div class="refresh-bar">
+                <span id="decision-count">Loading...</span>
+                <span class="auto-refresh" onclick="loadDecisions()">Refresh</span>
+            </div>
+            <div id="decision-feed"></div>
+        </div>
+
+        <!-- Actor Profile Panel -->
+        <div id="profile" class="panel">
+            <div class="search-bar">
+                <input type="text" id="profile-actor" placeholder="Enter actor name...">
+                <button onclick="loadProfile()">Load Profile</button>
+            </div>
+            <div id="profile-content"></div>
+        </div>
+    </main>
+
+    <script>
+        const API_BASE = '';
+
+        function showPanel(id) {
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.querySelector(`.tab[onclick*="${id}"]`).classList.add('active');
+        }
+
+        function riskColor(band) {
+            return `risk-${band}`;
+        }
+
+        function decisionClass(d) {
+            return `decision-${d}`;
+        }
+
+        function timeAgo(iso) {
+            if (!iso) return '';
+            const d = new Date(iso);
+            const now = new Date();
+            const seconds = Math.floor((now - d) / 1000);
+            if (seconds < 60) return `${seconds}s ago`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+            return `${Math.floor(seconds / 86400)}d ago`;
+        }
+
+        async function loadDecisions() {
+            const actor = document.getElementById('actor-filter').value;
+            const decision = document.getElementById('decision-filter').value;
+            let url = `${API_BASE}/v1/decisions/recent?limit=50`;
+            if (actor) url += `&actor=${encodeURIComponent(actor)}`;
+            if (decision) url += `&decision=${encodeURIComponent(decision)}`;
+
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+
+                document.getElementById('decision-count').textContent =
+                    `${data.total} decision(s)` + (data.shadow_mode ? ' (SHADOW MODE)' : '');
+
+                const feed = document.getElementById('decision-feed');
+                if (data.decisions.length === 0) {
+                    feed.innerHTML = '<p style="color: var(--text-muted); padding: 40px; text-align: center;">No decisions found.</p>';
+                    return;
+                }
+
+                feed.innerHTML = data.decisions.map(d => `
+                    <div class="decision-row">
+                        <span class="decision-badge ${decisionClass(d.decision)}">${d.decision.replace('_', ' ')}</span>
+                        <div>
+                            <span class="actor-name">${d.actor_name}</span>
+                            <div class="action-detail">${d.action} on ${d.target_asset}</div>
+                        </div>
+                        <span class="${riskColor(d.risk_band)}" style="font-weight:600;">${d.risk_score.toFixed(3)}</span>
+                        <span class="${riskColor(d.risk_band)}" style="font-size:12px;">${d.risk_band}</span>
+                        <span class="time-stamp">${timeAgo(d.evaluated_at)}</span>
+                    </div>
+                `).join('');
+            } catch (err) {
+                document.getElementById('decision-feed').innerHTML =
+                    `<p style="color: var(--red);">Failed to load decisions: ${err.message}</p>`;
+            }
+        }
+
+        async function loadProfile() {
+            const actor = document.getElementById('profile-actor').value.trim();
+            if (!actor) return;
+
+            try {
+                const resp = await fetch(`${API_BASE}/v1/actors/${encodeURIComponent(actor)}/profile`);
+                const p = await resp.json();
+
+                const trustColor = p.trust_level >= 0.7 ? 'var(--green)' :
+                                   p.trust_level >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+
+                document.getElementById('profile-content').innerHTML = `
+                    <div class="profile-header">
+                        <h2 style="color: var(--accent);">${p.actor_name}</h2>
+                        <div style="color: var(--text-muted); margin-top: 4px;">
+                            Trust: <strong style="color: ${trustColor}">${p.trust_band}</strong> (${p.trust_level.toFixed(3)})
+                            &nbsp;&middot;&nbsp;
+                            ${p.history_days} day history
+                            &nbsp;&middot;&nbsp;
+                            ${p.first_seen ? 'First seen: ' + new Date(p.first_seen).toLocaleDateString() : 'No history'}
+                        </div>
+                        <div class="trust-bar">
+                            <div class="trust-fill" style="width: ${p.trust_level * 100}%; background: ${trustColor};"></div>
+                        </div>
+                    </div>
+                    <div class="profile-stats">
+                        <div class="stat-card">
+                            <div class="stat-value">${p.total_actions}</div>
+                            <div class="stat-label">Total Actions</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" style="color: var(--green)">${p.total_allows}</div>
+                            <div class="stat-label">Allowed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" style="color: var(--yellow)">${p.total_reviews}</div>
+                            <div class="stat-label">Reviews</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" style="color: var(--red)">${p.total_blocks}</div>
+                            <div class="stat-label">Blocked</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${p.actions_last_hour}</div>
+                            <div class="stat-label">Last Hour</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${p.actions_last_day}</div>
+                            <div class="stat-label">Last 24h</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" style="color: var(--orange)">${p.prior_privilege_escalations}</div>
+                            <div class="stat-label">Escalations</div>
+                        </div>
+                    </div>
+                    ${Object.keys(p.top_actions).length > 0 ? `
+                    <div class="profile-header" style="margin-top: 16px;">
+                        <h3 style="margin-bottom: 12px;">Top Actions</h3>
+                        ${Object.entries(p.top_actions).map(([action, count]) => `
+                            <div style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border);">
+                                <span>${action}</span>
+                                <span style="color: var(--text-muted);">${count}</span>
+                            </div>
+                        `).join('')}
+                    </div>` : ''}
+                `;
+            } catch (err) {
+                document.getElementById('profile-content').innerHTML =
+                    `<p style="color: var(--red);">Failed to load profile: ${err.message}</p>`;
+            }
+        }
+
+        async function checkHealth() {
+            try {
+                const resp = await fetch(`${API_BASE}/v1/health`);
+                const data = await resp.json();
+                const badge = document.getElementById('health-badge');
+                if (data.shadow_mode) {
+                    badge.textContent = 'Shadow Mode';
+                    badge.className = 'status-badge status-shadow';
+                } else if (data.status === 'ok') {
+                    badge.textContent = 'Healthy';
+                    badge.className = 'status-badge status-ok';
+                } else {
+                    badge.textContent = 'Degraded';
+                    badge.className = 'status-badge';
+                    badge.style.background = 'var(--red)';
+                }
+            } catch (err) {
+                const badge = document.getElementById('health-badge');
+                badge.textContent = 'Offline';
+                badge.className = 'status-badge';
+                badge.style.background = 'var(--red)';
+                badge.style.color = '#fff';
+            }
+        }
+
+        // Initial load
+        loadDecisions();
+        checkHealth();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadDecisions, 30000);
+        setInterval(checkHealth, 60000);
+    </script>
+</body>
+</html>
