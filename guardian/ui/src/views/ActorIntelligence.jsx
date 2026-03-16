@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import RiskGauge from '../components/RiskGauge'
@@ -75,8 +76,18 @@ function generateInsights(profile, scopeDrift) {
 }
 
 export default function ActorIntelligence() {
-  const [actorName, setActorName] = useState('')
-  const [searchName, setSearchName] = useState('')
+  const [searchParams] = useSearchParams()
+  const deepLinkedName = searchParams.get('name') || ''
+  const [actorName, setActorName] = useState(deepLinkedName)
+  const [searchName, setSearchName] = useState(deepLinkedName)
+
+  // Handle deep-link changes
+  useEffect(() => {
+    if (deepLinkedName) {
+      setActorName(deepLinkedName)
+      setSearchName(deepLinkedName)
+    }
+  }, [deepLinkedName])
 
   const { data: profile, loading, error } = useApi(
     `/v1/actors/${searchName}/profile`,

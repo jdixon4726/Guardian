@@ -1,7 +1,6 @@
 /**
- * Decision summary card — Darktrace-inspired event card.
- * Shows risk gauge, decision badge, actor/action, and risk-colored left border.
- * Expands on click to show full detail panel with feedback controls.
+ * Decision Card — rich expandable card with risk gauge, severity tier,
+ * "Why this decision?" explanation, and deep-link to Actor Intelligence.
  */
 import { useState } from 'react'
 import { postApi } from '../hooks/useApi'
@@ -21,12 +20,61 @@ const DECISION_ICONS = {
   allow: '\u2714',
 }
 
-export default function DecisionCard({ entry, isExpanded, onToggle }) {
+// Generate a "Why this decision?" explanation from available signals
+function generateExplanation(entry) {
+  const parts = []
+
+  if (entry.decision === 'block' && entry.risk_score >= 1.0) {
+    parts.push(`This action was <strong>blocked by identity attestation</strong> — the actor either isn't registered, is terminated, or requested privileges beyond their maximum authorized level.`)
+  } else if (entry.decision === 'block') {
+    parts.push(`This action was <strong>blocked</strong> because the combined risk score (${entry.risk_score.toFixed(2)}) exceeded the block threshold.`)
+  } else if (entry.decision === 'require_review') {
+    if (entry.risk_score >= 0.5) {
+      parts.push(`This action requires review because the <strong>risk score is elevated</strong> (${entry.risk_score.toFixed(2)}).`)
+    } else {
+      parts.push(`This action requires review — <strong>no policy rule explicitly allowed it</strong>, so Guardian defaults to requiring human approval.`)
+    }
+  } else if (entry.decision === 'allow_with_logging') {
+    parts.push(`This action was allowed but <strong>flagged for logging</strong> due to moderate risk signals.`)
+  } else {
+    parts.push(`This action was <strong>allowed</strong> — it matched a permissive policy rule with low risk signals.`)
+  }
+
+  // Drift context
+  if (entry.drift_score != null && entry.drift_score > 0.3) {
+    parts.push(`Behavioral drift was detected (score: ${entry.drift_score.toFixed(2)}) — this actor's recent pattern deviates from its baseline.`)
+  }
+
+  return parts.join(' ')
+}
+
+// Recommended next step based on decision
+function getNextStep(entry) {
+  if (entry.decision === 'block' && entry.risk_score >= 1.0) {
+    return 'Verify this actor exists in the actor registry and has appropriate privilege levels.'
+  }
+  if (entry.decision === 'block') {
+    return 'Review the actor\'s recent activity for signs of compromise or misconfiguration.'
+  }
+  if (entry.decision === 'require_review' && entry.risk_score >= 0.5) {
+    return 'Investigate the actor\'s behavioral profile before approving this action.'
+  }
+  if (entry.decision === 'require_review') {
+    return 'Consider adding a policy rule to explicitly allow this action type if it is routine.'
+  }
+  return null
+}
+
+export default function DecisionCard({ entry, severity = 'info', isExpanded, onToggle, onNavigateToActor }) {
   const [feedbackSent, setFeedbackSent] = useState(false)
   const [feedbackType, setFeedbackType] = useState('')
 
   const borderColor = DECISION_COLORS[entry.decision] || 'var(--border)'
   const icon = DECISION_ICONS[entry.decision] || '?'
+  const explanation = generateExplanation(entry)
+  const nextStep = getNextStep(entry)
+
+  const glowClass = severity === 'critical' ? ' critical' : severity === 'warning' ? ' high-risk' : ''
 
   const sendFeedback = async (type) => {
     try {
@@ -42,9 +90,6 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
     }
   }
 
-  const glowClass = entry.decision === 'block' ? ' critical'
-    : entry.risk_score >= 0.6 ? ' high-risk' : ''
-
   return (
     <div
       className={`decision-card${glowClass}`}
@@ -54,10 +99,11 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
         borderRadius: 'var(--radius)',
         marginBottom: 8,
         overflow: 'hidden',
-        transition: 'all 0.2s ease',
+        transition: 'border-color 0.15s, box-shadow 0.15s',
         border: `1px solid ${isExpanded ? borderColor : 'var(--border)'}`,
         borderLeftWidth: 3,
         borderLeftColor: borderColor,
+        boxShadow: 'var(--shadow-ambient)',
       }}
     >
       {/* Summary row */}
@@ -81,10 +127,15 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
             <span className={`badge badge-${entry.decision}`}>
               {icon} {entry.decision.replace(/_/g, ' ')}
             </span>
-            <span className={`badge badge-${entry.risk_band}`}>{entry.risk_band}</span>
           </div>
           <div style={{ fontSize: 14 }}>
-            <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{entry.actor_name}</span>
+            <span
+              style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', cursor: 'pointer' }}
+              onClick={(e) => { e.stopPropagation(); onNavigateToActor?.() }}
+              title="View actor profile"
+            >
+              {entry.actor_name}
+            </span>
             <span style={{ color: 'var(--text-muted)', margin: '0 6px' }}>&rarr;</span>
             <span style={{ color: 'var(--text)' }}>{entry.action}</span>
             <span style={{ color: 'var(--text-muted)', margin: '0 6px' }}>on</span>
@@ -98,7 +149,7 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
               drift {entry.drift_score.toFixed(2)}
             </div>
           )}
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
             {new Date(entry.evaluated_at).toLocaleTimeString()}
           </div>
         </div>
@@ -116,10 +167,35 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
           background: 'var(--bg)',
           animation: 'slideDown 0.2s ease',
         }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+          {/* Why this decision? — the most important element */}
+          <div style={{
+            padding: '10px 14px',
+            background: 'var(--surface)',
+            borderRadius: 'var(--radius-sm)',
+            borderLeft: `3px solid ${borderColor}`,
+            marginBottom: 14,
+          }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Why this decision
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: explanation }} />
+            {nextStep && (
+              <div style={{ fontSize: 12, color: 'var(--accent)', marginTop: 6 }}>
+                <strong>Next step:</strong> {nextStep}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Actor</div>
-              <div style={{ fontSize: 14, fontFamily: 'var(--mono)', marginTop: 4 }}>{entry.actor_name}</div>
+              <div
+                style={{ fontSize: 14, fontFamily: 'var(--mono)', marginTop: 4, color: 'var(--accent)', cursor: 'pointer' }}
+                onClick={onNavigateToActor}
+                title="View full actor profile"
+              >
+                {entry.actor_name} &rarr;
+              </div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Action</div>
@@ -131,23 +207,23 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Risk Score</div>
-              <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700, marginTop: 4, color: borderColor }}>
+              <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700, marginTop: 4, color: borderColor, fontVariantNumeric: 'tabular-nums' }}>
                 {entry.risk_score.toFixed(3)}
               </div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Drift Score</div>
-              <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700, marginTop: 4 }}>
+              <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>
                 {entry.drift_score != null ? entry.drift_score.toFixed(3) : 'N/A'}
               </div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Evaluated</div>
-              <div style={{ fontSize: 14, marginTop: 4 }}>{new Date(entry.evaluated_at).toLocaleString()}</div>
+              <div style={{ fontSize: 14, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{new Date(entry.evaluated_at).toLocaleString()}</div>
             </div>
           </div>
 
-          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 4 }}>Feedback:</span>
             {feedbackSent ? (
               <span style={{ color: 'var(--green)', fontSize: 13 }}>
