@@ -253,6 +253,19 @@ button.secondary { background: var(--surface); border: 1px solid var(--border); 
 .health-dot.shadow { background: var(--yellow); }
 .health-dot.error { background: var(--red); }
 
+/* Animations */
+@keyframes slideDown {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 500px; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.decision-card { animation: fadeIn 0.2s ease; }
+
 /* Recharts overrides */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line { stroke: var(--border); }
