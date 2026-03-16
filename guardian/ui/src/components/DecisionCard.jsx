@@ -42,9 +42,12 @@ export default function DecisionCard({ entry, isExpanded, onToggle }) {
     }
   }
 
+  const glowClass = entry.decision === 'block' ? ' critical'
+    : entry.risk_score >= 0.6 ? ' high-risk' : ''
+
   return (
     <div
-      className="decision-card"
+      className={`decision-card${glowClass}`}
       style={{
         borderLeft: `3px solid ${borderColor}`,
         background: 'var(--surface)',

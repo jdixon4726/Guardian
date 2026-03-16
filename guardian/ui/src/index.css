@@ -13,6 +13,11 @@
   --orange: #db6d28;
   --red: #f85149;
   --purple: #bc8cff;
+  --cyan: #00d4aa;
+  --glow-red: rgba(248, 81, 73, 0.4);
+  --glow-orange: rgba(219, 109, 40, 0.3);
+  --glow-yellow: rgba(210, 153, 34, 0.2);
+  --glow-green: rgba(63, 185, 80, 0.15);
   --radius: 8px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Noto Sans, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -264,7 +269,87 @@ button.secondary { background: var(--surface); border: 1px solid var(--border); 
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 var(--glow-red); }
+  50% { box-shadow: 0 0 12px 2px var(--glow-red); }
+}
+
+@keyframes pulse-orange {
+  0%, 100% { box-shadow: 0 0 0 0 var(--glow-orange); }
+  50% { box-shadow: 0 0 10px 2px var(--glow-orange); }
+}
+
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 .decision-card { animation: fadeIn 0.2s ease; }
+.decision-card.critical { animation: fadeIn 0.2s ease, pulse-red 3s ease-in-out infinite; }
+.decision-card.high-risk { animation: fadeIn 0.2s ease, pulse-orange 4s ease-in-out infinite; }
+
+/* Insight cards — Darktrace AI Analyst style */
+.insight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  border-left: 3px solid var(--orange);
+  transition: all 0.2s;
+}
+
+.insight-card:hover { border-color: var(--accent); }
+
+.insight-card .insight-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.insight-card .insight-narrative {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.insight-card .insight-narrative strong {
+  color: var(--text);
+}
+
+/* Peer comparison bar */
+.peer-bar {
+  position: relative;
+  height: 24px;
+  background: var(--border);
+  border-radius: 12px;
+  overflow: visible;
+  margin: 8px 0;
+}
+
+.peer-bar .peer-range {
+  position: absolute;
+  height: 100%;
+  background: rgba(88, 166, 255, 0.15);
+  border-radius: 12px;
+}
+
+.peer-bar .peer-marker {
+  position: absolute;
+  top: -2px;
+  width: 12px;
+  height: 28px;
+  border-radius: 6px;
+  transform: translateX(-50%);
+  border: 2px solid var(--surface);
+}
+
+/* Sparkline container */
+.sparkline { display: inline-flex; align-items: end; gap: 1px; height: 20px; }
+.sparkline-bar { width: 3px; border-radius: 1px; transition: height 0.3s; }
 
 /* Recharts overrides */
 .recharts-cartesian-grid-horizontal line,
