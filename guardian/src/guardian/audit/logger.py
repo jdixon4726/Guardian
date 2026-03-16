@@ -6,6 +6,9 @@ Each entry includes the SHA-256 hash of the previous entry, forming a hash chain
 that can be independently verified.
 
 A broken chain indicates log tampering. The `verify` method detects breaks.
+
+Supports pluggable replication sinks for forwarding entries to immutable
+external stores (S3 Object Lock, Azure Immutable Blob, SIEM, etc.).
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -24,18 +28,67 @@ logger = logging.getLogger(__name__)
 GENESIS_HASH = "0" * 64  # Hash of the non-existent entry before the first entry
 
 
+class AuditReplicationSink(ABC):
+    """
+    Interface for audit log replication targets.
+
+    Implementations forward each audit entry to an external immutable store.
+    The local hash-chained log detects tampering; replication prevents deletion.
+    """
+
+    @abstractmethod
+    def replicate(self, entry_json: str, entry_id: str, entry_hash: str) -> bool:
+        """
+        Forward an audit entry to the external store.
+
+        Returns True if replication succeeded. Failed replications are
+        logged but do not block the pipeline — Guardian prioritizes
+        availability over replication consistency.
+        """
+        ...
+
+    @abstractmethod
+    def health_check(self) -> bool:
+        """Return True if the replication target is reachable."""
+        ...
+
+
+class FileReplicationSink(AuditReplicationSink):
+    """Replicate audit entries to a secondary file (e.g., mounted remote volume)."""
+
+    def __init__(self, replica_path: Path):
+        self._path = replica_path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def replicate(self, entry_json: str, entry_id: str, entry_hash: str) -> bool:
+        try:
+            with open(self._path, "a", encoding="utf-8") as f:
+                f.write(entry_json + "\n")
+            return True
+        except OSError as exc:
+            logger.error("Audit replication failed: %s", exc)
+            return False
+
+    def health_check(self) -> bool:
+        return self._path.parent.exists()
+
+
 class AuditLogger:
     """
-    Append-only audit logger with SHA-256 hash chaining.
+    Append-only audit logger with SHA-256 hash chaining and pluggable replication.
 
     Thread safety: This implementation uses file-level appends. For concurrent
     writes in production, use a database-backed implementation with row locking.
     """
 
-    def __init__(self, log_path: Path):
+    def __init__(self, log_path: Path,
+                 replication_sinks: list[AuditReplicationSink] | None = None):
         self.log_path = log_path
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._last_hash: str = self._load_last_hash()
+        self._sinks = replication_sinks or []
+        if self._sinks:
+            logger.info("Audit replication configured: %d sink(s)", len(self._sinks))
 
     def write(self, decision: Decision) -> Decision:
         """
@@ -53,6 +106,15 @@ class AuditLogger:
 
         self._last_hash = decision.entry_hash
         logger.debug("Audit entry written: %s hash=%s", decision.entry_id, decision.entry_hash)
+
+        # Replicate to external sinks (best-effort, non-blocking)
+        entry_json = decision.model_dump_json()
+        for sink in self._sinks:
+            try:
+                sink.replicate(entry_json, decision.entry_id, decision.entry_hash)
+            except Exception as exc:
+                logger.error("Audit replication sink error: %s", exc)
+
         return decision
 
     def verify(self) -> tuple[bool, Optional[str]]:

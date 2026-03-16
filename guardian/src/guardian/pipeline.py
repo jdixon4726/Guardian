@@ -26,6 +26,7 @@ from guardian.audit.logger import AuditLogger
 from guardian.behavioral.engine import BehavioralIntelligenceEngine
 from guardian.config.loader import load_config
 from guardian.config.model import GuardianConfig
+from guardian.config.signature import BundleVerifier
 from guardian.decision.engine import DecisionEngine
 from guardian.drift.alerts import AlertPublisher
 from guardian.drift.baseline import BaselineStore
@@ -172,12 +173,28 @@ class GuardianPipeline:
 
     @classmethod
     def from_config(cls, config_dir: Path, policies_dir: Path,
-                    audit_log_path: Path) -> "GuardianPipeline":
+                    audit_log_path: Path,
+                    signing_secret: str | None = None,
+                    verification_mode: str = "warn") -> "GuardianPipeline":
         """
         Construct a GuardianPipeline from directory paths.
         Loads guardian.yaml for all tunable parameters.
+        Verifies config bundle signature if signing_secret is provided.
         Raises RuntimeError on any invalid configuration.
         """
+        # Verify config bundle integrity before loading anything
+        import os
+        secret = signing_secret or os.environ.get("GUARDIAN_SIGNING_SECRET")
+        mode = os.environ.get("GUARDIAN_VERIFICATION_MODE", verification_mode)
+        verifier = BundleVerifier(secret)
+        result = verifier.verify(config_dir, mode=mode)
+        if not result.valid:
+            raise RuntimeError(
+                f"Config bundle verification failed: {result.reason}"
+            )
+        if result.reason and mode == "warn":
+            logger.warning("Config bundle: %s", result.reason)
+
         # Load master config (defaults if guardian.yaml absent)
         config = load_config(config_dir)
 
