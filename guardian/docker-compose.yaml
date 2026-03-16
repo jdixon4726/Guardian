@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  guardian:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - guardian-data:/app/data
+      - ./config:/app/config:ro
+      - ./policies:/app/policies:ro
+    environment:
+      - GUARDIAN_CONFIG_DIR=/app/config
+      - GUARDIAN_POLICIES_DIR=/app/policies
+      - GUARDIAN_AUDIT_LOG=/app/data/audit.jsonl
+      - GUARDIAN_SHADOW_MODE=false
+      - GUARDIAN_API_KEY=${GUARDIAN_API_KEY:-}
+      - GUARDIAN_CORS_ORIGINS=*
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  guardian-data:
