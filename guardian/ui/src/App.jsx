@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
 import { useTheme } from './hooks/useTheme'
 import { useApi } from './hooks/useApi'
+import Heartbeat from './components/Heartbeat'
 import CommandCenter from './views/CommandCenter'
 import ActorIntelligence from './views/ActorIntelligence'
 import AutomationGraph from './views/AutomationGraph'
@@ -10,7 +11,7 @@ import Reconciliation from './views/Reconciliation'
 
 function App() {
   const { theme, toggle } = useTheme()
-  const { data: health } = useApi('/v1/health', { autoRefresh: 30000 })
+  const { data: health } = useApi('/v1/health', { autoRefresh: 15000 })
 
   const healthStatus = health?.status || 'unknown'
   const shadowMode = health?.shadow_mode || false
@@ -20,7 +21,7 @@ function App() {
       <nav className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            Guardian
+            <span className="logo-icon">&#9678;</span> Guardian
             <span>Behavioral Governance Engine</span>
           </div>
           <div className="health-badge">
@@ -30,16 +31,17 @@ function App() {
         </div>
 
         <ul className="sidebar-nav">
-          <li><NavLink to="/" end>Command Center</NavLink></li>
-          <li><NavLink to="/actors">Actor Intelligence</NavLink></li>
-          <li><NavLink to="/graph">Automation Graph</NavLink></li>
-          <li><NavLink to="/blast-radius">Blast Radius</NavLink></li>
-          <li><NavLink to="/feedback">Feedback & Accuracy</NavLink></li>
-          <li><NavLink to="/reconciliation">Reconciliation</NavLink></li>
+          <li><NavLink to="/" end>&#9670; Command Center</NavLink></li>
+          <li><NavLink to="/actors">&#9673; Actor Intelligence</NavLink></li>
+          <li><NavLink to="/graph">&#9700; Automation Graph</NavLink></li>
+          <li><NavLink to="/blast-radius">&#9681; Blast Radius</NavLink></li>
+          <li><NavLink to="/feedback">&#10003; Feedback & Accuracy</NavLink></li>
+          <li><NavLink to="/reconciliation">&#9638; Reconciliation</NavLink></li>
         </ul>
 
         <div className="sidebar-footer">
-          <button className="theme-toggle" onClick={toggle}>
+          <Heartbeat />
+          <button className="theme-toggle" onClick={toggle} style={{ marginTop: 8 }}>
             {theme === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19'} {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
           </button>
         </div>

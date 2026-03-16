@@ -187,7 +187,21 @@ export default function AutomationGraph() {
       if (e.target === cyRef.current) setSelectedNode(null)
     })
 
+    // Breathing animation — nodes gently pulse
+    let breathePhase = 0
+    const breatheInterval = setInterval(() => {
+      if (!cyRef.current) return
+      breathePhase += 0.05
+      cyRef.current.nodes().forEach(node => {
+        const baseSize = node.data('type') === 'actor' ? 44 : node.data('type') === 'system' ? 50 : 36
+        const breathe = Math.sin(breathePhase + node.id().length) * 2
+        node.style('width', baseSize + breathe)
+        node.style('height', node.data('type') === 'system' ? 30 + breathe * 0.5 : baseSize + breathe)
+      })
+    }, 100)
+
     return () => {
+      clearInterval(breatheInterval)
       if (cyRef.current) cyRef.current.destroy()
     }
   }, [cascades])

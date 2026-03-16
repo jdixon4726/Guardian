@@ -258,6 +258,92 @@ button.secondary { background: var(--surface); border: 1px solid var(--border); 
 .health-dot.shadow { background: var(--yellow); }
 .health-dot.error { background: var(--red); }
 
+/* Heartbeat indicator */
+.heartbeat-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.heartbeat-ring {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.heartbeat-core {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: heartbeat-idle 3s ease-in-out infinite;
+}
+
+.heartbeat-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--green);
+  opacity: 0.3;
+  animation: heartbeat-ring-pulse 3s ease-in-out infinite;
+}
+
+.heartbeat-ring.active .heartbeat-core {
+  background: var(--accent);
+  animation: heartbeat-flash 0.5s ease;
+}
+
+.heartbeat-ring.active::before {
+  border-color: var(--accent);
+  animation: heartbeat-ring-flash 0.5s ease;
+}
+
+@keyframes heartbeat-idle {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+@keyframes heartbeat-ring-pulse {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.1); }
+}
+
+@keyframes heartbeat-flash {
+  0% { transform: scale(1.5); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.8; }
+}
+
+@keyframes heartbeat-ring-flash {
+  0% { transform: scale(1.8); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 0.3; }
+}
+
+.heartbeat-info { flex: 1; }
+.heartbeat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.heartbeat-time { font-size: 13px; font-family: var(--mono); color: var(--text); }
+
+/* Risk pulse waveform */
+.risk-pulse-container {
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* Logo icon */
+.logo-icon {
+  color: var(--accent);
+  animation: logo-breathe 4s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes logo-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; text-shadow: 0 0 8px var(--accent); }
+}
+
 /* Animations */
 @keyframes slideDown {
   from { opacity: 0; max-height: 0; }

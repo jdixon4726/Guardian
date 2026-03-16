@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useApi } from '../hooks/useApi'
 import DecisionCard from '../components/DecisionCard'
 import RiskGauge from '../components/RiskGauge'
+import RiskPulse from '../components/RiskPulse'
 
 export default function CommandCenter() {
   const [actor, setActor] = useState('')
@@ -67,6 +68,20 @@ export default function CommandCenter() {
           </div>
         </div>
       )}
+
+      {/* Live risk pulse — infrastructure heart rate */}
+      <div className="card" style={{ padding: '12px 16px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Live Risk Pulse
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            <span style={{ color: 'var(--red)', marginRight: 4 }}>&#9679;</span>blocks
+            <span style={{ color: 'var(--accent)', margin: '0 4px 0 12px' }}>&#9644;</span>risk level
+          </span>
+        </div>
+        <RiskPulse height={52} />
+      </div>
 
       {/* Filters */}
       <div className="filters">
