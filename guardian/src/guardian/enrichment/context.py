@@ -53,6 +53,9 @@ class ActorHistoryContext:
     total_allows: int = 0
     prior_privilege_escalations: int = 0
     history_days: int = 0
+    trust_level: float = 0.5        # [0.0, 1.0] — 0.5 is default for new actors
+    actions_last_hour: int = 0
+    actions_last_day: int = 0
 
 
 @dataclass
@@ -165,21 +168,41 @@ class ContextEnricher:
     """Assembles EnrichedContext from all available data sources."""
 
     def __init__(self, asset_catalog: AssetCatalog,
-                 window_store: MaintenanceWindowStore):
+                 window_store: MaintenanceWindowStore,
+                 history_store: "ActorHistoryStore | None" = None):
         self.asset_catalog = asset_catalog
         self.window_store = window_store
+        self._history_store = history_store
 
     def enrich(self, request: ActionRequest,
                attestation: AttestationResult) -> EnrichedContext:
         asset = self.asset_catalog.get(request.target_asset)
         window = self.window_store.check(request.target_system, request.timestamp)
 
-        # Actor history is loaded from the store if available; stub for Phase 1
-        actor_history = ActorHistoryContext(actor_name=request.actor_name)
+        # Actor history from the store, or neutral defaults for new/unknown actors
+        if self._history_store is not None:
+            profile = self._history_store.get_profile(
+                request.actor_name, at=request.timestamp,
+            )
+            actor_history = ActorHistoryContext(
+                actor_name=request.actor_name,
+                total_actions=profile.total_actions,
+                total_blocks=profile.total_blocks,
+                total_reviews=profile.total_reviews,
+                total_allows=profile.total_allows,
+                prior_privilege_escalations=profile.prior_privilege_escalations,
+                history_days=profile.history_days,
+                trust_level=profile.trust_level,
+                actions_last_hour=profile.actions_last_hour,
+                actions_last_day=profile.actions_last_day,
+            )
+        else:
+            actor_history = ActorHistoryContext(actor_name=request.actor_name)
 
         logger.debug(
-            "Context enriched: asset=%s criticality=%s in_window=%s",
+            "Context enriched: asset=%s criticality=%s in_window=%s history_actions=%d",
             asset.asset_id, asset.criticality, window.in_window,
+            actor_history.total_actions,
         )
         return EnrichedContext(
             request=request,

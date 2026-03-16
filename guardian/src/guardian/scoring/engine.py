@@ -187,6 +187,33 @@ def actor_scorer(context: EnrichedContext) -> ScorerResult:
             contribution=0.10,
         ))
 
+    # Trust level signals — low trust increases risk, high trust reduces it
+    trust = history.trust_level
+    if trust < 0.3:
+        addition = 0.15
+        score = min(1.0, score + addition)
+        signals.append(RiskSignal(
+            source="actor_scorer",
+            description=f"Low trust level ({trust:.2f}) — actor has history of blocks or reviews",
+            contribution=addition,
+        ))
+    elif trust < 0.5 and history.total_actions >= 10:
+        addition = 0.05
+        score = min(1.0, score + addition)
+        signals.append(RiskSignal(
+            source="actor_scorer",
+            description=f"Below-average trust level ({trust:.2f})",
+            contribution=addition,
+        ))
+    elif trust > 0.7 and history.total_actions >= 10:
+        reduction = -0.10
+        score = max(0.0, score + reduction)
+        signals.append(RiskSignal(
+            source="actor_scorer",
+            description=f"High trust level ({trust:.2f}) — established actor with clean history",
+            contribution=reduction,
+        ))
+
     return ScorerResult(score=round(score, 3), signals=signals)
 
 
@@ -241,6 +268,37 @@ def context_scorer(context: EnrichedContext,
             contribution=0.10,
         ))
 
+    # Velocity signals — high action rates indicate automation bursts or compromise
+    hourly = context.actor_history.actions_last_hour
+    daily = context.actor_history.actions_last_day
+
+    if hourly > 50:
+        addition = 0.25
+        score = min(1.0, score + addition)
+        signals.append(RiskSignal(
+            source="context_scorer",
+            description=f"Extreme hourly velocity: {hourly} actions in last hour",
+            contribution=addition,
+        ))
+    elif hourly > 20:
+        addition = 0.15
+        score = min(1.0, score + addition)
+        signals.append(RiskSignal(
+            source="context_scorer",
+            description=f"High hourly velocity: {hourly} actions in last hour",
+            contribution=addition,
+        ))
+
+    if daily > 200:
+        addition = 0.10
+        score = min(1.0, score + addition)
+        signals.append(RiskSignal(
+            source="context_scorer",
+            description=f"High daily velocity: {daily} actions in last 24 hours",
+            contribution=addition,
+        ))
+
+    # Drift signals
     if drift_score > 0.5:
         addition = min(0.40, drift_score * 0.5)
         score = min(1.0, score + addition)

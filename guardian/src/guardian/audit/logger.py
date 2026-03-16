@@ -48,7 +48,7 @@ class AuditLogger:
         entry_content = self._serialize_for_hashing(decision)
         decision.entry_hash = hashlib.sha256(entry_content.encode()).hexdigest()
 
-        with open(self.log_path, "a") as f:
+        with open(self.log_path, "a", encoding="utf-8") as f:
             f.write(decision.model_dump_json() + "\n")
 
         self._last_hash = decision.entry_hash
@@ -66,7 +66,7 @@ class AuditLogger:
             return True, None
 
         previous_hash = GENESIS_HASH
-        with open(self.log_path) as f:
+        with open(self.log_path, encoding="utf-8") as f:
             for line_number, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
@@ -111,7 +111,7 @@ class AuditLogger:
         if not self.log_path.exists():
             return GENESIS_HASH
         last_hash = GENESIS_HASH
-        with open(self.log_path) as f:
+        with open(self.log_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

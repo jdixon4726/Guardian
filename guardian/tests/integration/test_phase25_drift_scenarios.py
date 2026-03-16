@@ -69,6 +69,19 @@ def drift_pipeline():
     return pipeline
 
 
+# Saturday 02:15 UTC — inside the weekly maintenance window for aws-vpc-prod
+# We compute this dynamically so the tests don't break as dates advance.
+def _next_saturday_0215() -> datetime:
+    """Return a recent Saturday at 02:15 UTC (inside mw-prod-vpc-weekly window)."""
+    now = datetime.now(timezone.utc)
+    days_since_saturday = (now.weekday() + 2) % 7  # Saturday = weekday 5
+    last_saturday = now - timedelta(days=days_since_saturday)
+    return last_saturday.replace(hour=2, minute=15, second=0, microsecond=0)
+
+
+_SAT_0215 = _next_saturday_0215()
+
+
 def _make_request(
     actor: str,
     action: str,
@@ -80,7 +93,7 @@ def _make_request(
     timestamp: datetime | None = None,
 ) -> ActionRequest:
     if timestamp is None:
-        timestamp = datetime(2025, 3, 15, 2, 15, 0, tzinfo=timezone.utc)
+        timestamp = _SAT_0215
     return ActionRequest(
         actor_name=actor,
         actor_type=actor_type,
@@ -100,7 +113,7 @@ class TestDriftIntegration:
         """First evaluation for an actor should have neutral drift."""
         request = _make_request(
             "deploy-bot-prod", "modify_firewall_rule",
-            timestamp=datetime(2025, 3, 15, 2, 15, 0, tzinfo=timezone.utc),
+            timestamp=_SAT_0215,
         )
         decision = drift_pipeline.evaluate(request)
         assert decision.drift_score is not None
@@ -109,11 +122,12 @@ class TestDriftIntegration:
     def test_baseline_builds_over_evaluations(self, drift_pipeline):
         """After enough evaluations, a baseline should be established."""
         store = drift_pipeline._test_baseline_store
+        now = datetime.now(timezone.utc)
 
         for i in range(6):
             request = _make_request(
                 "deploy-bot-prod", "modify_firewall_rule",
-                timestamp=datetime(2025, 3, 15, 2 + i, 15, 0, tzinfo=timezone.utc),
+                timestamp=now - timedelta(days=5) + timedelta(hours=i),
             )
             drift_pipeline.evaluate(request)
 
@@ -124,6 +138,7 @@ class TestDriftIntegration:
     def test_anomalous_action_after_baseline_shows_drift(self, drift_pipeline):
         """After building a baseline, an anomalous action should produce drift."""
         store = drift_pipeline._test_baseline_store
+        now = datetime.now(timezone.utc)
 
         # Build baseline with consistent behavior
         actor = "security-scanner-bot"
@@ -135,7 +150,7 @@ class TestDriftIntegration:
                 sensitivity=SensitivityLevel.internal,
                 target_system="aws-vpc-prod",
                 target_asset="dev-sandbox",
-                timestamp=datetime(2025, 3, 1, i, 0, 0, tzinfo=timezone.utc),
+                timestamp=now - timedelta(days=5) + timedelta(hours=i),
             )
             drift_pipeline.evaluate(request)
 
@@ -149,7 +164,7 @@ class TestDriftIntegration:
             sensitivity=SensitivityLevel.restricted,
             target_system="aws-iam",
             target_asset="role-data-pipeline-prod",
-            timestamp=datetime(2025, 3, 15, 12, 0, 0, tzinfo=timezone.utc),
+            timestamp=now,
         )
         decision = drift_pipeline.evaluate(anomalous)
 
@@ -167,7 +182,7 @@ class TestDriftIntegration:
             "alice.chen", "modify_firewall_rule",
             actor_type=ActorType.human,
             privilege=PrivilegeLevel.elevated,
-            timestamp=datetime(2025, 3, 15, 2, 30, 0, tzinfo=timezone.utc),
+            timestamp=_SAT_0215,
         )
         decision = drift_pipeline.evaluate(request)
         assert decision.drift_score is not None
@@ -191,7 +206,7 @@ class TestPhase1ScenariosStillPass:
             privilege_level=PrivilegeLevel.elevated,
             sensitivity_level=SensitivityLevel.high,
             business_context="Testing",
-            timestamp=datetime(2025, 3, 15, 14, 32, 0, tzinfo=timezone.utc),
+            timestamp=datetime.now(timezone.utc),
         )
         decision = drift_pipeline.evaluate(request)
         assert decision.decision == DecisionOutcome.block
@@ -207,7 +222,7 @@ class TestPhase1ScenariosStillPass:
             privilege_level=PrivilegeLevel.elevated,
             sensitivity_level=SensitivityLevel.high,
             business_context="Weekly deployment",
-            timestamp=datetime(2025, 3, 15, 2, 15, 0, tzinfo=timezone.utc),
+            timestamp=_SAT_0215,
         )
         decision = drift_pipeline.evaluate(request)
         assert decision.decision == DecisionOutcome.allow_with_logging
@@ -223,7 +238,7 @@ class TestPhase1ScenariosStillPass:
             privilege_level=PrivilegeLevel.elevated,
             sensitivity_level=SensitivityLevel.restricted,
             business_context="Need S3 permissions",
-            timestamp=datetime(2025, 3, 15, 11, 45, 0, tzinfo=timezone.utc),
+            timestamp=datetime.now(timezone.utc),
         )
         decision = drift_pipeline.evaluate(request)
         assert decision.decision == DecisionOutcome.require_review

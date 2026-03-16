@@ -6,13 +6,14 @@ This is the main entry point for all action request evaluation.
 
 Stage order:
   1. Identity Attestation  — fail fast on unknown/terminated/spoofing actors
-  2. Context Enrichment    — asset, window, history signals
+  2. Context Enrichment    — asset, window, history (trust + velocity) signals
   3. Drift Detection       — behavioral baseline comparison (Phase 2.5)
   4. Policy Engine         — deny → conditional → allow evaluation
   5. Risk Scoring Engine   — composite signal scoring (drift feeds context scorer)
   6. Decision Engine       — policy × risk → final decision
   7. Audit Logger          — write tamper-evident entry
-  8. Alert Publisher       — drift alerts (fire-and-forget)
+  8. Actor History Store   — record evaluation for trust and velocity tracking
+  9. Alert Publisher       — drift alerts (fire-and-forget)
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from guardian.drift.alerts import AlertPublisher
 from guardian.drift.baseline import BaselineStore
 from guardian.drift.engine import DriftDetectionEngine
 from guardian.enrichment.context import AssetCatalog, ContextEnricher, MaintenanceWindowStore
+from guardian.history.store import ActorHistoryStore
 from guardian.models.action_request import (
     ActionRequest,
     Decision,
@@ -56,9 +58,11 @@ class GuardianPipeline:
         audit_logger: AuditLogger,
         baseline_store: BaselineStore | None = None,
         alert_publisher: AlertPublisher | None = None,
+        history_store: ActorHistoryStore | None = None,
     ):
+        self.history_store = history_store or ActorHistoryStore()
         self.attestor = IdentityAttestor(actor_registry)
-        self.enricher = ContextEnricher(asset_catalog, window_store)
+        self.enricher = ContextEnricher(asset_catalog, window_store, self.history_store)
         self.policy_engine = policy_engine
         self.risk_engine = RiskScoringEngine()
         self.decision_engine = DecisionEngine()
@@ -142,7 +146,18 @@ class GuardianPipeline:
         # Stage 7: Audit Log
         decision = self.audit_logger.write(decision)
 
-        # Stage 8: Drift Alert Publishing (async, fire-and-forget)
+        # Stage 8: Record to Actor History Store
+        self.history_store.record(
+            actor_name=request.actor_name,
+            action_type=request.requested_action,
+            target_asset=request.target_asset,
+            decision=result.outcome.value,
+            risk_score=risk_score,
+            privilege_level=request.privilege_level.value,
+            timestamp=request.timestamp,
+        )
+
+        # Stage 9: Drift Alert Publishing (async, fire-and-forget)
         if drift.alert_triggered:
             self.alert_publisher.publish(
                 actor_name=request.actor_name,
@@ -176,6 +191,10 @@ class GuardianPipeline:
         alert_log = audit_log_path.parent / "drift-alerts.jsonl"
         alert_publisher = AlertPublisher(alert_log)
 
+        # Actor history store
+        history_db = audit_log_path.parent / "actor-history.sqlite"
+        history_store = ActorHistoryStore(history_db)
+
         return cls(
             actor_registry=actor_registry,
             asset_catalog=asset_catalog,
@@ -184,4 +203,5 @@ class GuardianPipeline:
             audit_logger=audit_logger,
             baseline_store=baseline_store,
             alert_publisher=alert_publisher,
+            history_store=history_store,
         )

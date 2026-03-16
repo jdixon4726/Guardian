@@ -4,9 +4,10 @@ Guardian FastAPI Application
 Exposes the Guardian evaluation pipeline as an HTTP API.
 
 Endpoints:
-  POST /v1/evaluate          — submit an action request
-  GET  /v1/audit/verify      — verify audit log hash chain
-  GET  /v1/health            — liveness check
+  POST /v1/evaluate                     — submit an action request
+  GET  /v1/actors/{actor_name}/profile  — actor history, trust, velocity
+  GET  /v1/audit/verify                 — verify audit log hash chain
+  GET  /v1/health                       — liveness check
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from guardian.history.store import ActorProfile
 from guardian.models.action_request import ActionRequest, Decision
 from guardian.pipeline import GuardianPipeline
 
@@ -82,6 +84,14 @@ def audit_verify() -> JSONResponse:
     return JSONResponse(content={"valid": valid, "reason": reason})
 
 
+@app.get("/v1/actors/{actor_name}/profile", response_model=ActorProfileResponse)
+def actor_profile(actor_name: str) -> "ActorProfileResponse":
+    """Retrieve an actor's evaluation history, trust level, and velocity."""
+    pipeline = get_pipeline()
+    profile = pipeline.history_store.get_profile(actor_name)
+    return ActorProfileResponse.from_profile(profile)
+
+
 @app.get("/v1/health")
 def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}
@@ -122,4 +132,47 @@ class EvaluateResponse(BaseModel):
             compliance_tags=d.compliance_tags,
             entry_id=d.entry_id,
             drift_score=d.drift_score.score if d.drift_score else None,
+        )
+
+
+class ActorProfileResponse(BaseModel):
+    actor_name: str
+    total_actions: int
+    total_blocks: int
+    total_reviews: int
+    total_allows: int
+    prior_privilege_escalations: int
+    history_days: int
+    trust_level: float
+    trust_band: str
+    actions_last_hour: int
+    actions_last_day: int
+    first_seen: str | None
+    last_seen: str | None
+    top_actions: dict[str, int]
+
+    @classmethod
+    def from_profile(cls, p: ActorProfile) -> "ActorProfileResponse":
+        if p.trust_level >= 0.7:
+            trust_band = "high"
+        elif p.trust_level >= 0.4:
+            trust_band = "neutral"
+        else:
+            trust_band = "low"
+
+        return cls(
+            actor_name=p.actor_name,
+            total_actions=p.total_actions,
+            total_blocks=p.total_blocks,
+            total_reviews=p.total_reviews,
+            total_allows=p.total_allows,
+            prior_privilege_escalations=p.prior_privilege_escalations,
+            history_days=p.history_days,
+            trust_level=p.trust_level,
+            trust_band=trust_band,
+            actions_last_hour=p.actions_last_hour,
+            actions_last_day=p.actions_last_day,
+            first_seen=p.first_seen.isoformat() if p.first_seen else None,
+            last_seen=p.last_seen.isoformat() if p.last_seen else None,
+            top_actions=p.top_actions,
         )

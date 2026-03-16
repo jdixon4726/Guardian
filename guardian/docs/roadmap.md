@@ -47,13 +47,13 @@
 ## Phase 2 — Contextual Intelligence
 *Goal: Move from static evaluation to context-aware evaluation.*
 
-- [ ] Asset Catalog with criticality scoring (YAML-backed)
-- [ ] Maintenance Window Store with cron-schedule parsing
-- [ ] Actor History Store (SQLite, append-only)
-- [ ] Actor trust level model (new actors start lower-trust; trust builds over time)
-- [ ] Action velocity tracking (actions per hour, per day)
-- [ ] Context Scorer updated with maintenance window and velocity signals
-- [ ] `GET /v1/actors/{actor_name}/profile` endpoint
+- [x] Asset Catalog with criticality scoring (YAML-backed)
+- [x] Maintenance Window Store with cron-schedule parsing
+- [x] Actor History Store (SQLite, append-only)
+- [x] Actor trust level model (new actors start lower-trust; trust builds over time)
+- [x] Action velocity tracking (actions per hour, per day)
+- [x] Context Scorer updated with maintenance window and velocity signals
+- [x] `GET /v1/actors/{actor_name}/profile` endpoint
 
 **Deliverable:** Decisions that meaningfully change based on time, asset context, and actor history.
 

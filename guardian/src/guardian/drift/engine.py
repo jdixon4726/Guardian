@@ -75,10 +75,18 @@ def _jensen_shannon_divergence(p: dict[str, float], q: dict[str, float]) -> floa
 def _compute_level_drift_z(
     current_risk: float, baseline: ActorBaseline
 ) -> float:
-    """Compute z-score of current risk against baseline mean."""
-    if not baseline.has_baseline or baseline.stddev_risk < 1e-6:
+    """Compute z-score of current risk against baseline mean.
+
+    When stddev is near-zero (highly regular actor), any meaningful deviation
+    from the mean is treated as extreme drift. We use a minimum stddev floor
+    to avoid division-by-zero while still producing large z-scores.
+    """
+    if not baseline.has_baseline:
         return 0.0
-    return (current_risk - baseline.mean_risk) / baseline.stddev_risk
+    # Floor stddev at 0.01 so near-zero-variance actors still produce
+    # meaningful z-scores when risk deviates from the mean.
+    effective_stddev = max(baseline.stddev_risk, 0.01)
+    return (current_risk - baseline.mean_risk) / effective_stddev
 
 
 def _compute_pattern_drift(

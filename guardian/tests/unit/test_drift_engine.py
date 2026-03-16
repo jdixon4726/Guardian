@@ -43,9 +43,13 @@ def _seed_baseline(
     start: datetime | None = None,
     interval_hours: int = 1,
 ) -> None:
-    """Helper: record observations and recompute baseline."""
+    """Helper: record observations and recompute baseline.
+
+    Defaults to recent timestamps so observations fall within the 30-day
+    rolling window used by recompute_baseline().
+    """
     if start is None:
-        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        start = datetime.now(timezone.utc) - timedelta(days=7)
     for i, (action_type, risk_score) in enumerate(actions):
         ts = start + timedelta(hours=i * interval_hours)
         store.record_observation(actor, action_type, risk_score, ts)
@@ -89,7 +93,7 @@ class TestBaselineStore:
         for i in range(MIN_OBSERVATIONS - 1):
             store.record_observation(
                 "actor-a", "read_config", 0.2,
-                datetime(2025, 1, 1, i, tzinfo=timezone.utc),
+                datetime.now(timezone.utc) - timedelta(days=7) + timedelta(hours=i),
             )
         store.recompute_baseline("actor-a")
         b = store.get_baseline("actor-a")
@@ -99,7 +103,7 @@ class TestBaselineStore:
         for i in range(MIN_OBSERVATIONS):
             store.record_observation(
                 "actor-a", "read_config", 0.2 + i * 0.01,
-                datetime(2025, 1, 1, i, tzinfo=timezone.utc),
+                datetime.now(timezone.utc) - timedelta(days=7) + timedelta(hours=i),
             )
         store.recompute_baseline("actor-a")
         b = store.get_baseline("actor-a")
@@ -137,7 +141,7 @@ class TestNormalActor:
         # Evaluate a new action that's consistent with baseline
         result = engine.evaluate(
             "steady-actor", "read_config", 0.21,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert result.score < 0.20, f"Expected low drift, got {result.score}"
@@ -151,7 +155,7 @@ class TestNormalActor:
         for i in range(5):
             result = engine.evaluate(
                 "boring-actor", "read_config", 0.20,
-                datetime(2025, 2, 1, i, tzinfo=timezone.utc),
+                datetime.now(timezone.utc) + timedelta(hours=i),
             )
         assert result.score < 0.25
         assert not result.alert_triggered
@@ -171,7 +175,7 @@ class TestPrivilegeCreep:
         # Now the actor starts doing progressively riskier things
         result = engine.evaluate(
             "creep-actor", "modify_iam_role", 0.70,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert result.score > 0.3, f"Expected elevated drift, got {result.score}"
@@ -183,7 +187,7 @@ class TestPrivilegeCreep:
 
         result = engine.evaluate(
             "escalator", "escalate_privileges", 0.90,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert result.alert_triggered, "Should trigger alert on extreme deviation"
@@ -212,7 +216,7 @@ class TestCompromiseEvent:
         # Compromise: suddenly attempts to export data (never seen before)
         result = engine.evaluate(
             "compromised-actor", "export_data", 0.80,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert result.score > 0.4, f"Expected high drift, got {result.score}"
@@ -225,7 +229,7 @@ class TestCompromiseEvent:
 
         result = engine.evaluate(
             "victim", "disable_endpoint_protection", 0.95,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert "baseline" in result.explanation.lower() or "σ" in result.explanation
@@ -258,7 +262,7 @@ class TestAIAnomaly:
         # Phase 2: sudden escalation
         result = engine.evaluate(
             "drifting-ai", "escalate_privileges", 0.85,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert result.alert_triggered, "Regularity + escalation should trigger alert"
@@ -281,11 +285,11 @@ class TestAIAnomaly:
 
         result_regular = engine.evaluate(
             "regular-ai", "escalate_privileges", 0.85,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
         result_varied = engine.evaluate(
             "varied-actor", "escalate_privileges", 0.85,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
 
         assert result_regular.score > result_varied.score, (
@@ -301,7 +305,7 @@ class TestEdgeCases:
     def test_no_baseline_returns_neutral_drift(self, engine):
         result = engine.evaluate(
             "brand-new-actor", "read_config", 0.15,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
         assert result.score == 0.0
         assert not result.alert_triggered
@@ -313,14 +317,14 @@ class TestEdgeCases:
 
         result = engine.evaluate(
             "extreme-test", "destroy_infrastructure", 1.0,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
         assert 0.0 <= result.score <= 1.0
 
     def test_observation_recorded_after_evaluation(self, store, engine):
         engine.evaluate(
             "new-actor", "read_config", 0.15,
-            datetime(2025, 2, 1, tzinfo=timezone.utc),
+            datetime.now(timezone.utc),
         )
         actors = store.get_all_actor_names()
         assert "new-actor" in actors
