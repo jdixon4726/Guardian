@@ -7,11 +7,12 @@ This is the main entry point for all action request evaluation.
 Stage order:
   1. Identity Attestation  — fail fast on unknown/terminated/spoofing actors
   2. Context Enrichment    — asset, window, history signals
-  3. Drift Detection       — behavioral baseline comparison (stub in Phase 1)
+  3. Drift Detection       — behavioral baseline comparison (Phase 2.5)
   4. Policy Engine         — deny → conditional → allow evaluation
-  5. Risk Scoring Engine   — composite signal scoring
+  5. Risk Scoring Engine   — composite signal scoring (drift feeds context scorer)
   6. Decision Engine       — policy × risk → final decision
   7. Audit Logger          — write tamper-evident entry
+  8. Alert Publisher       — drift alerts (fire-and-forget)
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ from pathlib import Path
 from guardian.attestation.attestor import ActorRegistry, IdentityAttestor
 from guardian.audit.logger import AuditLogger
 from guardian.decision.engine import DecisionEngine
+from guardian.drift.alerts import AlertPublisher
+from guardian.drift.baseline import BaselineStore
+from guardian.drift.engine import DriftDetectionEngine
 from guardian.enrichment.context import AssetCatalog, ContextEnricher, MaintenanceWindowStore
 from guardian.models.action_request import (
     ActionRequest,
@@ -32,7 +36,7 @@ from guardian.models.action_request import (
 )
 from guardian.policy.engine import PolicyEngine
 from guardian.policy.loaders import PolicyLoader
-from guardian.scoring.engine import RiskScoringEngine
+from guardian.scoring.engine import RiskScoringEngine, action_scorer, actor_scorer
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,8 @@ class GuardianPipeline:
         window_store: MaintenanceWindowStore,
         policy_engine: PolicyEngine,
         audit_logger: AuditLogger,
+        baseline_store: BaselineStore | None = None,
+        alert_publisher: AlertPublisher | None = None,
     ):
         self.attestor = IdentityAttestor(actor_registry)
         self.enricher = ContextEnricher(asset_catalog, window_store)
@@ -57,6 +63,9 @@ class GuardianPipeline:
         self.risk_engine = RiskScoringEngine()
         self.decision_engine = DecisionEngine()
         self.audit_logger = audit_logger
+        self.baseline_store = baseline_store or BaselineStore()
+        self.drift_engine = DriftDetectionEngine(self.baseline_store)
+        self.alert_publisher = alert_publisher or AlertPublisher()
 
     def evaluate(self, request: ActionRequest) -> Decision:
         logger.info(
@@ -79,14 +88,18 @@ class GuardianPipeline:
         # Stage 2: Context Enrichment
         context = self.enricher.enrich(request, attestation)
 
-        # Stage 3: Drift Detection (Phase 1 stub — returns neutral score)
-        drift = DriftScore(
-            score=0.0,
-            level_drift_z=0.0,
-            pattern_drift_js=0.0,
-            baseline_days=0,
-            alert_triggered=False,
-            explanation="Drift detection not yet active (Phase 2.5).",
+        # Stage 3: Drift Detection — behavioral baseline comparison
+        # We need a preliminary risk score for drift evaluation. Use the action
+        # and actor scorers only (before context scorer, which depends on drift).
+        prelim_risk = (
+            action_scorer(context).score * 0.55
+            + actor_scorer(context).score * 0.45
+        )
+        drift = self.drift_engine.evaluate(
+            actor_name=request.actor_name,
+            action_type=request.requested_action,
+            current_risk=prelim_risk,
+            timestamp=request.timestamp,
         )
 
         # Stage 4: Policy Engine
@@ -127,7 +140,18 @@ class GuardianPipeline:
         )
 
         # Stage 7: Audit Log
-        return self.audit_logger.write(decision)
+        decision = self.audit_logger.write(decision)
+
+        # Stage 8: Drift Alert Publishing (async, fire-and-forget)
+        if drift.alert_triggered:
+            self.alert_publisher.publish(
+                actor_name=request.actor_name,
+                action_type=request.requested_action,
+                drift_score=drift,
+                decision_entry_id=decision.entry_id,
+            )
+
+        return decision
 
     @classmethod
     def from_config(cls, config_dir: Path, policies_dir: Path,
@@ -146,10 +170,18 @@ class GuardianPipeline:
 
         audit_logger = AuditLogger(audit_log_path)
 
+        # Drift detection stores
+        baseline_db = audit_log_path.parent / "baselines.sqlite"
+        baseline_store = BaselineStore(baseline_db)
+        alert_log = audit_log_path.parent / "drift-alerts.jsonl"
+        alert_publisher = AlertPublisher(alert_log)
+
         return cls(
             actor_registry=actor_registry,
             asset_catalog=asset_catalog,
             window_store=window_store,
             policy_engine=policy_engine,
             audit_logger=audit_logger,
+            baseline_store=baseline_store,
+            alert_publisher=alert_publisher,
         )

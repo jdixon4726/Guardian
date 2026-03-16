@@ -62,15 +62,15 @@
 ## Phase 2.5 — Drift Detection
 *Goal: Detect behavioral anomalies that rule-based systems cannot see.*
 
-- [ ] Behavioral Baseline Store (SQLite, per-actor rolling statistics)
-- [ ] Background job to recompute baselines hourly
-- [ ] Level drift scoring (z-score against baseline mean)
-- [ ] Pattern drift scoring (JS divergence over action type distribution)
-- [ ] Composite `DriftScore` model
-- [ ] Alert Publisher (async, log-based in Phase 2.5; webhook in Phase 3+)
-- [ ] Regularity detection (low variance flagging)
-- [ ] Drift score integrated into Risk Scoring Engine (Context Scorer)
-- [ ] Fixture-based tests for four drift scenarios:
+- [x] Behavioral Baseline Store (SQLite, per-actor rolling statistics)
+- [x] Background job to recompute baselines hourly
+- [x] Level drift scoring (z-score against baseline mean)
+- [x] Pattern drift scoring (JS divergence over action type distribution)
+- [x] Composite `DriftScore` model
+- [x] Alert Publisher (async, log-based in Phase 2.5; webhook in Phase 3+)
+- [x] Regularity detection (low variance flagging)
+- [x] Drift score integrated into Risk Scoring Engine (Context Scorer)
+- [x] Fixture-based tests for four drift scenarios:
   - Normal actor (no drift expected)
   - Privilege creep (gradual score elevation)
   - Compromise event (abrupt spike)

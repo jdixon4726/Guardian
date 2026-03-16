@@ -8,3 +8,7 @@ src/guardian.egg-info/SOURCES.txt
 src/guardian.egg-info/dependency_links.txt
 src/guardian.egg-info/requires.txt
 src/guardian.egg-info/top_level.txt
+src/guardian/drift/__init__.py
+src/guardian/drift/alerts.py
+src/guardian/drift/baseline.py
+src/guardian/drift/engine.py
