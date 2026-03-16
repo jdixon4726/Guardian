@@ -27,6 +27,7 @@ from guardian.behavioral.engine import BehavioralIntelligenceEngine
 from guardian.config.loader import load_config
 from guardian.config.model import GuardianConfig
 from guardian.config.signature import BundleVerifier
+from guardian.jobs.baseline_recompute import BaselineRecomputeJob
 from guardian.decision.engine import DecisionEngine
 from guardian.drift.alerts import AlertPublisher
 from guardian.drift.baseline import BaselineStore
@@ -79,9 +80,12 @@ class GuardianPipeline:
         self.behavioral_engine = BehavioralIntelligenceEngine(
             drift_engine=self.drift_engine,
             history_store=self.history_store,
+            baseline_store=self.baseline_store,
             config=cfg,
         )
         self.alert_publisher = alert_publisher or AlertPublisher()
+        self._baseline_job = BaselineRecomputeJob(self.baseline_store)
+        self._baseline_job.start()
 
     def evaluate(self, request: ActionRequest) -> Decision:
         logger.info(

@@ -321,6 +321,35 @@ def audit_verify(
     return JSONResponse(content={"valid": valid, "reason": reason})
 
 
+@app.get("/v1/reconciliation/report")
+def reconciliation_report(
+    window_minutes: int = Query(default=60, ge=1, le=1440),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Run a reconciliation check for the specified time window."""
+    pipeline = get_pipeline()
+    from guardian.reconciliation.engine import ReconciliationEngine
+    engine = ReconciliationEngine([], pipeline.audit_logger.log_path)
+    report = engine.reconcile(window_minutes=window_minutes)
+    return JSONResponse(content={
+        "window_start": report.window_start.isoformat(),
+        "window_end": report.window_end.isoformat(),
+        "total_external_actions": report.total_external_actions,
+        "total_governed": report.total_governed,
+        "total_ungoverned": report.total_ungoverned,
+        "ungoverned_actions": [
+            {
+                "actor": a.external_action.actor,
+                "action": a.external_action.action,
+                "resource": a.external_action.resource,
+                "severity": a.severity,
+                "explanation": a.explanation,
+            }
+            for a in report.ungoverned_actions
+        ],
+    })
+
+
 @app.get("/", include_in_schema=False)
 def dashboard() -> FileResponse:
     """Serve the Guardian dashboard."""

@@ -1,0 +1,28 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.7.0",
+  "resource_changes": [
+    {
+      "address": "aws_security_group.web",
+      "type": "aws_security_group",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"ingress": [{"from_port": 443}]},
+        "after": {"ingress": [{"from_port": 443}, {"from_port": 8080}]}
+      }
+    },
+    {
+      "address": "aws_instance.app_server",
+      "type": "aws_instance",
+      "name": "app_server",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {"instance_type": "t3.medium"},
+        "after": {"instance_type": "t3.large"}
+      }
+    }
+  ]
+}

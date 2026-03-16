@@ -2,8 +2,9 @@
 Behavioral Intelligence Engine
 
 Guardian's core differentiator. Consolidates drift detection, trust level
-computation, and velocity tracking into a single BehavioralAssessment that
-answers the question: "Is this request normal for this actor, right now?"
+computation, velocity tracking, Bayesian confidence scoring, peer group
+analysis, and multi-dimensional anomaly detection into a single
+BehavioralAssessment.
 
 This assessment is computed BEFORE policy evaluation and passed to the policy
 provider as additional context — so even OPA/Rego rules can leverage
@@ -16,7 +17,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from guardian.behavioral.anomaly import AnomalyAssessment, MultiDimensionalAnomalyScorer
+from guardian.behavioral.confidence import BayesianConfidenceScorer, ConfidenceEstimate
+from guardian.behavioral.peer_groups import PeerGroupAssessment, PeerGroupEngine
 from guardian.config.model import GuardianConfig
+from guardian.drift.baseline import BaselineStore
 from guardian.drift.engine import DriftDetectionEngine
 from guardian.enrichment.context import EnrichedContext
 from guardian.history.store import ActorHistoryStore
@@ -40,7 +45,10 @@ class BehavioralAssessment:
     velocity_daily: int             # actions in the last 24 hours
     behavioral_risk: float          # [0.0, 1.0] — composite behavioral risk
     signals: list[RiskSignal] = field(default_factory=list)
-    is_anomalous: bool = False      # True if any behavioral signal crosses alert threshold
+    is_anomalous: bool = False      # True if model breach threshold crossed
+    confidence: ConfidenceEstimate | None = None
+    peer_assessment: PeerGroupAssessment | None = None
+    anomaly_assessment: AnomalyAssessment | None = None
 
     def to_policy_context(self) -> dict:
         """
@@ -50,8 +58,9 @@ class BehavioralAssessment:
           deny if input.behavioral_risk > 0.8
           deny if input.is_anomalous
           deny if input.trust_level < 0.3
+          deny if input.confidence_width > 0.4
         """
-        return {
+        ctx = {
             "trust_level": self.trust_level,
             "drift_score": self.drift_score.score,
             "drift_alert": self.drift_score.alert_triggered,
@@ -60,28 +69,44 @@ class BehavioralAssessment:
             "behavioral_risk": self.behavioral_risk,
             "is_anomalous": self.is_anomalous,
         }
+        if self.confidence:
+            ctx["confidence"] = self.confidence.confidence
+            ctx["confidence_width"] = self.confidence.width
+        if self.peer_assessment:
+            ctx["peer_z_score"] = self.peer_assessment.z_score_vs_peers
+            ctx["is_peer_anomaly"] = self.peer_assessment.is_peer_anomaly
+        if self.anomaly_assessment:
+            ctx["anomalous_dimensions"] = self.anomaly_assessment.anomalous_dimensions
+            ctx["is_model_breach"] = self.anomaly_assessment.is_model_breach
+        return ctx
 
 
 class BehavioralIntelligenceEngine:
     """
     Computes a BehavioralAssessment for each action request.
 
-    Orchestrates:
+    Orchestrates all behavioral intelligence components:
       - Drift detection (z-score, JS divergence, regularity)
       - Trust level (from actor history store)
       - Velocity tracking (actions per hour/day)
-      - Preliminary risk scoring (action + actor scorers only)
+      - Bayesian confidence scoring (wide-then-narrow intervals)
+      - Peer group analysis (cold-start inheritance, peer anomaly)
+      - Multi-dimensional anomaly scoring (composite model breaches)
     """
 
     def __init__(
         self,
         drift_engine: DriftDetectionEngine,
         history_store: ActorHistoryStore,
+        baseline_store: BaselineStore | None = None,
         config: GuardianConfig | None = None,
     ):
         self.drift_engine = drift_engine
         self.history_store = history_store
         self.cfg = config or GuardianConfig()
+        self.confidence_scorer = BayesianConfidenceScorer()
+        self.anomaly_scorer = MultiDimensionalAnomalyScorer(breach_threshold=2)
+        self.peer_engine = PeerGroupEngine(baseline_store) if baseline_store else None
 
     def assess(
         self, context: EnrichedContext,
@@ -95,7 +120,7 @@ class BehavioralIntelligenceEngine:
         request = context.request
         signals: list[RiskSignal] = []
 
-        # Preliminary risk from action + actor scorers (before context/drift)
+        # ── Preliminary risk (action + actor scorers only) ──
         action_result = action_scorer(context, self.cfg.scoring)
         actor_result = actor_scorer(context, self.cfg.scoring)
         prelim_risk = (
@@ -103,7 +128,7 @@ class BehavioralIntelligenceEngine:
             + actor_result.score * 0.45
         )
 
-        # Drift detection
+        # ── Drift detection ──
         drift = self.drift_engine.evaluate(
             actor_name=request.actor_name,
             action_type=request.requested_action,
@@ -118,12 +143,11 @@ class BehavioralIntelligenceEngine:
                 contribution=drift.score * 0.5,
             ))
 
-        # Trust and velocity from enriched context (already populated by history store)
+        # ── Trust and velocity from enriched context ──
         trust = context.actor_history.trust_level
         hourly = context.actor_history.actions_last_hour
         daily = context.actor_history.actions_last_day
 
-        # Trust signals
         if trust < 0.3:
             signals.append(RiskSignal(
                 source="behavioral",
@@ -131,7 +155,6 @@ class BehavioralIntelligenceEngine:
                 contribution=0.15,
             ))
 
-        # Velocity signals
         if hourly > self.cfg.scoring.velocity_hourly_extreme:
             signals.append(RiskSignal(
                 source="behavioral",
@@ -145,18 +168,78 @@ class BehavioralIntelligenceEngine:
                 contribution=0.15,
             ))
 
-        # Composite behavioral risk
-        trust_risk = max(0.0, 0.5 - trust) * 0.4  # low trust → higher risk
-        drift_risk = drift.score * 0.4
-        velocity_risk = min(0.2, (hourly / 100.0) * 0.2)
-        behavioral_risk = round(min(1.0, trust_risk + drift_risk + velocity_risk), 3)
-
-        # Anomaly determination
-        is_anomalous = (
-            drift.alert_triggered
-            or trust < 0.3
-            or hourly > self.cfg.scoring.velocity_hourly_extreme
+        # ── Bayesian confidence scoring ──
+        history = context.actor_history
+        risky_count = history.total_blocks + history.total_reviews
+        normal_count = history.total_allows
+        confidence = self.confidence_scorer.estimate(
+            actor_type=request.actor_type.value,
+            risky_count=risky_count,
+            normal_count=normal_count,
         )
+
+        if confidence.is_uncertain:
+            signals.append(RiskSignal(
+                source="behavioral",
+                description=(
+                    f"Low confidence estimate (width={confidence.width:.2f}, "
+                    f"{confidence.observations} observations) — "
+                    "treating conservatively"
+                ),
+                contribution=0.05,
+            ))
+
+        # ── Peer group analysis ──
+        peer_assessment = None
+        peer_z = None
+        if self.peer_engine:
+            peer_assessment = self.peer_engine.assess(
+                request.actor_name, prelim_risk,
+            )
+            if peer_assessment:
+                peer_z = peer_assessment.z_score_vs_peers
+                if peer_assessment.is_peer_anomaly:
+                    signals.append(RiskSignal(
+                        source="behavioral",
+                        description=(
+                            f"Anomalous vs peer group '{peer_assessment.group_id}' "
+                            f"({peer_assessment.z_score_vs_peers:+.2f}σ)"
+                        ),
+                        contribution=0.10,
+                    ))
+
+        # ── Multi-dimensional anomaly scoring ──
+        anomaly = self.anomaly_scorer.score(
+            level_drift_z=drift.level_drift_z,
+            pattern_drift_js=drift.pattern_drift_js,
+            velocity_hourly=hourly,
+            velocity_daily=daily,
+            trust_level=trust,
+            risk_score=prelim_risk,
+            peer_z_score=peer_z,
+            confidence=confidence.confidence,
+        )
+
+        if anomaly.is_model_breach:
+            signals.append(RiskSignal(
+                source="behavioral",
+                description=anomaly.explanation,
+                contribution=anomaly.composite_score * 0.3,
+            ))
+
+        # ── Composite behavioral risk ──
+        trust_risk = max(0.0, 0.5 - trust) * 0.3
+        drift_risk = drift.score * 0.3
+        velocity_risk = min(0.15, (hourly / 100.0) * 0.15)
+        anomaly_risk = anomaly.composite_score * 0.15
+        confidence_penalty = (1.0 - confidence.confidence) * 0.10
+        behavioral_risk = round(
+            min(1.0, trust_risk + drift_risk + velocity_risk + anomaly_risk + confidence_penalty),
+            3,
+        )
+
+        # ── Anomaly determination (model breach = the primary trigger) ──
+        is_anomalous = anomaly.is_model_breach
 
         assessment = BehavioralAssessment(
             trust_level=trust,
@@ -166,13 +249,18 @@ class BehavioralIntelligenceEngine:
             behavioral_risk=behavioral_risk,
             signals=signals,
             is_anomalous=is_anomalous,
+            confidence=confidence,
+            peer_assessment=peer_assessment,
+            anomaly_assessment=anomaly,
         )
 
         logger.info(
-            "Behavioral assessment: actor=%s trust=%.2f drift=%.3f "
-            "velocity=%d/hr behavioral_risk=%.3f anomalous=%s",
-            request.actor_name, trust, drift.score,
-            hourly, behavioral_risk, is_anomalous,
+            "Behavioral: actor=%s trust=%.2f drift=%.3f velocity=%d/hr "
+            "confidence=%.2f anomaly_dims=%d/%d breach=%s behavioral_risk=%.3f",
+            request.actor_name, trust, drift.score, hourly,
+            confidence.confidence, anomaly.anomalous_dimensions,
+            len(anomaly.dimensions), anomaly.is_model_breach,
+            behavioral_risk,
         )
 
         return assessment

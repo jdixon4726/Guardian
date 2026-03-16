@@ -1,0 +1,39 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.7.0",
+  "resource_changes": [
+    {
+      "address": "aws_db_instance.primary",
+      "type": "aws_db_instance",
+      "name": "primary",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["delete"],
+        "before": {"identifier": "prod-db-primary", "engine": "postgres"},
+        "after": null
+      }
+    },
+    {
+      "address": "aws_iam_role.deploy_role",
+      "type": "aws_iam_role",
+      "name": "deploy_role",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {"name": "deploy-role-v2", "assume_role_policy": "{}"}
+      }
+    },
+    {
+      "address": "aws_security_group.deprecated",
+      "type": "aws_security_group",
+      "name": "deprecated",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["delete"],
+        "before": {"name": "old-sg"},
+        "after": null
+      }
+    }
+  ]
+}
