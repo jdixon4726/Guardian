@@ -68,8 +68,9 @@ class ActorHistoryStore:
                  trust_config: TrustConfig | None = None):
         self._db_path = str(db_path)
         self._trust = trust_config or _DEFAULT_TRUST
-        self._conn = sqlite3.connect(self._db_path)
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
         logger.info("Actor history store initialized: %s", self._db_path)
 

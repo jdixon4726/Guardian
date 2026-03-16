@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-_ROOT = Path(__file__).parent.parent.parent  # src/guardian/api -> project root
+_ROOT = Path(__file__).parent.parent.parent.parent  # src/guardian/api -> src -> project root
 CONFIG_DIR = Path(os.getenv("GUARDIAN_CONFIG_DIR", str(_ROOT / "config")))
 POLICIES_DIR = Path(os.getenv("GUARDIAN_POLICIES_DIR", str(_ROOT / "policies")))
 AUDIT_LOG = Path(os.getenv("GUARDIAN_AUDIT_LOG", str(_ROOT / "audit.jsonl")))

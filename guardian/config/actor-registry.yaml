@@ -51,6 +51,62 @@ actors:
     registered: "2022-01-15"
     notes: "Security team lead. Admin-level authorized."
 
+  - name: github-actions-prod
+    type: automation
+    max_privilege_level: standard
+    owner: devops@example.com
+    status: active
+    registered: "2024-06-01"
+    notes: "GitHub Actions CI/CD bot for production pipelines."
+
+  - name: terraform-cloud-runner
+    type: automation
+    max_privilege_level: admin
+    owner: platform-team@example.com
+    status: active
+    registered: "2024-03-15"
+    notes: "Terraform Cloud runner for infrastructure automation."
+
+  - name: argocd-prod
+    type: automation
+    max_privilege_level: elevated
+    owner: platform-team@example.com
+    status: active
+    registered: "2024-05-01"
+    notes: "ArgoCD GitOps controller for production Kubernetes."
+
+  - name: datadog-collector
+    type: automation
+    max_privilege_level: standard
+    owner: observability@example.com
+    status: active
+    registered: "2024-02-01"
+    notes: "Datadog monitoring agent. Read-only metrics and log collection."
+
+  - name: ai-remediation-bot
+    type: ai_agent
+    max_privilege_level: elevated
+    owner: security@example.com
+    status: active
+    registered: "2025-06-01"
+    notes: "AI-powered incident remediation agent. Elevated for restart/rollback only."
+
+  - name: ai-ops-assistant
+    type: ai_agent
+    max_privilege_level: standard
+    owner: platform-team@example.com
+    status: active
+    registered: "2025-08-01"
+    notes: "AI operations assistant. Read-only log analysis and recommendations."
+
+  - name: cert-manager
+    type: automation
+    max_privilege_level: standard
+    owner: platform-team@example.com
+    status: active
+    registered: "2024-01-10"
+    notes: "Kubernetes cert-manager for TLS certificate automation."
+
   - name: former-employee
     type: human
     max_privilege_level: standard
