@@ -1,0 +1,33 @@
+# Maintenance Windows
+# Defines scheduled maintenance windows per system.
+# Windows use cron-style schedule expressions.
+# All times are UTC.
+
+windows:
+  - id: mw-prod-vpc-weekly
+    system: aws-vpc-prod
+    schedule: "0 2 * * 6"      # Every Saturday at 02:00 UTC
+    duration_hours: 4           # Window runs 02:00–06:00 UTC
+    description: "Weekly production VPC maintenance window"
+    owner: platform-team@example.com
+
+  - id: mw-server-fleet-monthly
+    system: server-fleet-prod
+    schedule: "0 22 1 * *"     # 1st of every month at 22:00 UTC
+    duration_hours: 6
+    description: "Monthly server fleet patching window"
+    owner: ops-team@example.com
+
+  - id: mw-rds-prod-weekly
+    system: rds-prod
+    schedule: "0 3 * * 0"      # Every Sunday at 03:00 UTC
+    duration_hours: 2
+    description: "Weekly RDS maintenance window"
+    owner: dba-team@example.com
+
+  - id: mw-aws-iam-never
+    system: aws-iam
+    schedule: null              # No scheduled maintenance — all IAM changes require review
+    duration_hours: 0
+    description: "IAM has no maintenance window. All changes require human review."
+    owner: security@example.com

@@ -1,0 +1,19 @@
+id: conditional-firewall-maintenance-window
+type: conditional
+description: >
+  Firewall and network rule modifications on high or restricted sensitivity assets
+  are permitted with logging during an active maintenance window.
+  Outside a maintenance window, they require human review.
+conditions:
+  requested_action:
+    - modify_firewall_rule
+    - modify_security_group
+    - update_network_acl
+  sensitivity_level:
+    - high
+    - restricted
+outcome_in_window: allow_with_logging
+outcome_out_of_window: require_review
+compliance_tags:
+  - NIST-CM-3
+  - CIS-4.2

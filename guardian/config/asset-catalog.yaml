@@ -1,0 +1,49 @@
+# Asset Catalog
+# Defines criticality and classification metadata for known assets.
+# Assets not in this catalog default to criticality=medium, sensitivity=internal.
+
+assets:
+  - id: sg-0a1b2c3d
+    name: "prod-vpc-main-security-group"
+    system: aws-vpc-prod
+    criticality: critical
+    sensitivity: high
+    owner: platform-team@example.com
+    tags: [network, production, firewall]
+    notes: "Main production VPC security group. Controls all ingress/egress."
+
+  - id: endpoint-protection-group-A
+    name: "prod-endpoint-protection-group"
+    system: server-fleet-prod
+    criticality: critical
+    sensitivity: high
+    owner: security@example.com
+    tags: [security-control, endpoint, production]
+    notes: "Endpoint protection covering all production servers. NEVER disable without CISO approval."
+
+  - id: role-data-pipeline-prod
+    name: "data-pipeline-iam-role"
+    system: aws-iam
+    criticality: high
+    sensitivity: restricted
+    owner: data-team@example.com
+    tags: [iam, data, production]
+    notes: "IAM role for data pipeline. Any modification triggers privilege governance review."
+
+  - id: prod-db-primary
+    name: "production-primary-database"
+    system: rds-prod
+    criticality: critical
+    sensitivity: restricted
+    owner: dba-team@example.com
+    tags: [database, production, pii]
+    notes: "Primary production database. Contains PII. All actions require review."
+
+  - id: dev-sandbox-01
+    name: "developer-sandbox"
+    system: aws-dev
+    criticality: low
+    sensitivity: internal
+    owner: devops@example.com
+    tags: [development, sandbox]
+    notes: "Dev sandbox. Permissive governance appropriate."

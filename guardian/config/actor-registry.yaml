@@ -1,0 +1,60 @@
+# Actor Registry
+# Source of truth for all registered actors in Guardian.
+# actor_type and max_privilege_level here override any self-reported claim.
+
+actors:
+  - name: infra-agent-prod
+    type: ai_agent
+    max_privilege_level: elevated
+    owner: platform-team@example.com
+    status: active
+    registered: "2025-01-10"
+    notes: "Production infrastructure AI agent. Managed by Platform Team."
+
+  - name: deploy-bot-prod
+    type: automation
+    max_privilege_level: elevated
+    owner: devops@example.com
+    status: active
+    registered: "2024-11-01"
+    notes: "Deployment pipeline automation. Runs weekly Saturday maintenance window."
+
+  - name: data-pipeline-bot
+    type: automation
+    max_privilege_level: elevated
+    owner: data-team@example.com
+    status: active
+    registered: "2024-09-15"
+    notes: "ETL pipeline automation. Standard privilege for normal operation."
+
+  - name: security-scanner-bot
+    type: automation
+    max_privilege_level: standard
+    owner: security@example.com
+    status: active
+    registered: "2025-02-01"
+    notes: "Read-only security scanning automation."
+
+  - name: alice.chen
+    type: human
+    max_privilege_level: elevated
+    owner: alice.chen@example.com
+    status: active
+    registered: "2023-06-01"
+    notes: "Senior infrastructure engineer."
+
+  - name: bob.okafor
+    type: human
+    max_privilege_level: admin
+    owner: bob.okafor@example.com
+    status: active
+    registered: "2022-01-15"
+    notes: "Security team lead. Admin-level authorized."
+
+  - name: former-employee
+    type: human
+    max_privilege_level: standard
+    owner: it@example.com
+    status: terminated
+    registered: "2021-03-01"
+    notes: "Terminated 2025-03-01. Should never pass attestation."

@@ -1,0 +1,20 @@
+id: deny-ai-agent-disable-security-tools
+type: deny
+description: >
+  AI agents are prohibited from autonomously disabling, modifying, or removing
+  security controls including endpoint protection, antivirus, firewalls, and
+  security monitoring tools. These actions require explicit human authorization.
+conditions:
+  actor_type: ai_agent
+  requested_action:
+    - disable_endpoint_protection
+    - disable_antivirus
+    - disable_edr
+    - modify_security_policy
+    - remove_security_tool
+    - disable_firewall
+mitre_technique: T1562.001
+compliance_tags:
+  - NIST-SI-3
+  - NIST-SI-7
+  - CIS-10.1

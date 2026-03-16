@@ -1,0 +1,19 @@
+id: conditional-automation-privilege-escalation
+type: conditional
+description: >
+  Automation accounts requesting privilege escalation require human review.
+  Automated systems should operate at their minimum required privilege level.
+  Privilege escalation requests indicate either a workflow design issue or
+  a potential security event.
+conditions:
+  actor_type: automation
+  privilege_level: elevated
+  requested_action:
+    - escalate_privileges
+    - modify_iam_role
+    - grant_admin_access
+    - add_user_to_group
+outcome: require_review
+compliance_tags:
+  - NIST-AC-6
+  - CIS-5.4

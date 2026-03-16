@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+setup.cfg
+src/guardian/__init__.py
+src/guardian/pipeline.py
+src/guardian.egg-info/PKG-INFO
+src/guardian.egg-info/SOURCES.txt
+src/guardian.egg-info/dependency_links.txt
+src/guardian.egg-info/requires.txt
+src/guardian.egg-info/top_level.txt

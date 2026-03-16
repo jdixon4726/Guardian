@@ -1,0 +1,11 @@
+id: deny-terminated-actor
+type: deny
+description: >
+  Actors with terminated status in the registry must never be permitted
+  to perform any action. This rule fires during Identity Attestation,
+  before any policy evaluation.
+conditions:
+  actor_status: terminated
+compliance_tags:
+  - NIST-AC-2
+  - CIS-5.3
