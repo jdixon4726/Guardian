@@ -30,6 +30,8 @@ from guardian.config.signature import BundleVerifier
 from guardian.jobs.baseline_recompute import BaselineRecomputeJob
 from guardian.decision.engine import DecisionEngine
 from guardian.drift.alerts import AlertPublisher
+from guardian.graph.builder import GraphBuilder
+from guardian.graph.store import GraphStore
 from guardian.drift.baseline import BaselineStore
 from guardian.drift.engine import DriftDetectionEngine
 from guardian.enrichment.context import AssetCatalog, ContextEnricher, MaintenanceWindowStore
@@ -65,6 +67,7 @@ class GuardianPipeline:
         alert_publisher: AlertPublisher | None = None,
         history_store: ActorHistoryStore | None = None,
         config: GuardianConfig | None = None,
+        graph_store: GraphStore | None = None,
     ):
         cfg = config or GuardianConfig()
         self.config = cfg
@@ -84,6 +87,11 @@ class GuardianPipeline:
             config=cfg,
         )
         self.alert_publisher = alert_publisher or AlertPublisher()
+        self.graph_store = graph_store or GraphStore()
+        self.graph_builder = GraphBuilder(
+            store=self.graph_store,
+            scoring_config=cfg.scoring,
+        )
         self._baseline_job = BaselineRecomputeJob(self.baseline_store)
         self._baseline_job.start()
 
@@ -173,6 +181,16 @@ class GuardianPipeline:
                 decision_entry_id=decision.entry_id,
             )
 
+        # Stage 10: Decision Graph (cascade detection, blast radius tracking)
+        try:
+            self.graph_builder.record_decision(
+                decision=decision,
+                trust_score=assessment.trust_level,
+                is_anomalous=assessment.is_anomalous,
+            )
+        except Exception:
+            logger.warning("Graph recording failed (non-fatal)", exc_info=True)
+
         return decision
 
     @classmethod
@@ -222,6 +240,10 @@ class GuardianPipeline:
         history_db = audit_log_path.parent / "actor-history.sqlite"
         history_store = ActorHistoryStore(history_db, trust_config=config.trust)
 
+        # Decision graph store
+        graph_db = audit_log_path.parent / "decision-graph.sqlite"
+        graph_store = GraphStore(graph_db)
+
         return cls(
             actor_registry=actor_registry,
             asset_catalog=asset_catalog,
@@ -232,4 +254,5 @@ class GuardianPipeline:
             alert_publisher=alert_publisher,
             history_store=history_store,
             config=config,
+            graph_store=graph_store,
         )

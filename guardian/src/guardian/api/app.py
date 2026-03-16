@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from guardian.graph.models import EdgeType, NodeType
 from guardian.history.store import ActorProfile
 from guardian.models.action_request import ActionRequest, Decision, DecisionOutcome
 from guardian.pipeline import GuardianPipeline
@@ -347,6 +348,143 @@ def reconciliation_report(
             }
             for a in report.ungoverned_actions
         ],
+    })
+
+
+# ── Graph Endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/v1/graph/actor/{actor_id}/blast-radius")
+def actor_blast_radius(
+    actor_id: str,
+    max_depth: int = Query(default=4, ge=1, le=8),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Compute the blast radius for an actor."""
+    pipeline = get_pipeline()
+    # Normalize: accept "deploy-bot" or "actor:deploy-bot"
+    if not actor_id.startswith("actor:"):
+        actor_id = f"actor:{actor_id}"
+    br = pipeline.graph_store.compute_blast_radius(actor_id, max_depth=max_depth)
+    return JSONResponse(content={
+        "actor_id": br.actor_id,
+        "direct_targets": br.direct_targets,
+        "indirect_targets": br.indirect_targets,
+        "critical_targets": br.critical_targets,
+        "systems_reached": br.systems_reached,
+        "max_chain_depth": br.max_chain_depth,
+        "blast_radius_score": br.blast_radius_score,
+        "chains": br.chains,
+    })
+
+
+@app.get("/v1/graph/cascades")
+def graph_cascades(
+    min_depth: int = Query(default=2, ge=2, le=10),
+    min_risk: float = Query(default=0.0, ge=0.0, le=5.0),
+    limit: int = Query(default=20, ge=1, le=100),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Find multi-hop automation cascades in the decision graph."""
+    pipeline = get_pipeline()
+    cascades = pipeline.graph_store.find_cascades(
+        min_depth=min_depth, min_risk=min_risk, limit=limit,
+    )
+    return JSONResponse(content={
+        "cascades": [
+            {
+                "chain_id": c.chain_id,
+                "events": c.events,
+                "actors": c.actors,
+                "systems": c.systems,
+                "total_risk": c.total_risk,
+                "depth": c.depth,
+                "starts_at": c.starts_at.isoformat(),
+                "ends_at": c.ends_at.isoformat(),
+                "crosses_trust_boundary": c.crosses_trust_boundary,
+            }
+            for c in cascades
+        ],
+        "total": len(cascades),
+    })
+
+
+@app.get("/v1/graph/actor/{actor_id}/targets")
+def actor_targets(
+    actor_id: str,
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Get all targets an actor has affected, with frequency and recency."""
+    pipeline = get_pipeline()
+    if not actor_id.startswith("actor:"):
+        actor_id = f"actor:{actor_id}"
+    targets = pipeline.graph_store.get_actor_targets(actor_id)
+    return JSONResponse(content={"actor_id": actor_id, "targets": targets})
+
+
+@app.get("/v1/graph/target/{target_id}/actors")
+def target_actors(
+    target_id: str,
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Get all actors that have affected a target."""
+    pipeline = get_pipeline()
+    actors = pipeline.graph_store.get_target_actors(target_id)
+    return JSONResponse(content={"target_id": target_id, "actors": actors})
+
+
+@app.get("/v1/graph/actor/{actor_id}/scope-drift")
+def actor_scope_drift(
+    actor_id: str,
+    window_days: int = Query(default=30, ge=1, le=365),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Detect scope drift for an actor (new targets or systems)."""
+    pipeline = get_pipeline()
+    if not actor_id.startswith("actor:"):
+        actor_id = f"actor:{actor_id}"
+    drift = pipeline.graph_store.detect_scope_drift(actor_id, window_days=window_days)
+    return JSONResponse(content=drift)
+
+
+@app.get("/v1/graph/actor/{actor_id}/path-drift")
+def actor_path_drift(
+    actor_id: str,
+    window_days: int = Query(default=30, ge=1, le=365),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Detect path drift for an actor (new automation chains)."""
+    pipeline = get_pipeline()
+    if not actor_id.startswith("actor:"):
+        actor_id = f"actor:{actor_id}"
+    drift = pipeline.graph_store.detect_path_drift(actor_id, window_days=window_days)
+    return JSONResponse(content=drift)
+
+
+@app.get("/v1/graph/stats")
+def graph_stats(
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Get graph statistics."""
+    pipeline = get_pipeline()
+    gs = pipeline.graph_store
+    return JSONResponse(content={
+        "total_nodes": gs.node_count(),
+        "total_edges": gs.edge_count(),
+        "total_events": gs.event_count(),
+        "nodes_by_type": {
+            "actors": gs.node_count(NodeType.actor),
+            "actions": gs.node_count(NodeType.action),
+            "targets": gs.node_count(NodeType.target),
+            "systems": gs.node_count(NodeType.system),
+            "decisions": gs.node_count(NodeType.decision),
+        },
+        "edges_by_type": {
+            "initiated": gs.edge_count(EdgeType.initiated),
+            "requested": gs.edge_count(EdgeType.requested),
+            "targeted": gs.edge_count(EdgeType.targeted),
+            "occurred_in": gs.edge_count(EdgeType.occurred_in),
+            "triggered": gs.edge_count(EdgeType.triggered),
+        },
     })
 
 
