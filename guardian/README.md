@@ -270,4 +270,4 @@ Policy rules are YAML files in `policies/` — deny, conditional, and allow rule
 
 ## License
 
-MIT
+Business Source License 1.1 (BSL 1.1). Free for non-production use and production use that does not compete with Guardian as a hosted service. Converts to Apache 2.0 on 2030-03-16. See [LICENSE](../LICENSE) for details.
