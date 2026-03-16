@@ -300,67 +300,242 @@ class GraphStore:
         )
         self._conn.commit()
 
-    # ── Cascade inference ────────────────────────────────────────────────────
+    # ── Cascade inference with confidence scoring ──────────────────────────
+
+    # Actor type compatibility for cascade confidence
+    # Higher = more likely this actor type triggers the other
+    _ACTOR_CHAIN_COMPATIBILITY: dict[tuple[str, str], float] = {
+        ("automation", "automation"): 0.8,    # CI -> IaC runner
+        ("automation", "ai_agent"): 0.6,
+        ("ai_agent", "automation"): 0.7,      # AI agent triggers pipeline
+        ("ai_agent", "ai_agent"): 0.5,        # AI -> AI less common
+        ("human", "automation"): 0.4,          # human triggers are less cascading
+        ("human", "ai_agent"): 0.3,
+    }
 
     def infer_triggered_by(
         self,
         event: DecisionEvent,
         window_seconds: int = 300,
+        min_confidence: float = 0.0,
     ) -> str | None:
         """
-        Infer which prior event triggered this one.
+        Infer which prior event triggered this one, with confidence scoring.
 
-        Heuristic: find the most recent event within `window_seconds` that
-        targeted the same system this actor belongs to, or whose outcome
-        affected a target that this event's actor operates on.
+        Confidence is based on:
+          - Temporal proximity (closer = higher, exponential decay)
+          - Actor type compatibility (CI->IaC = high, human->human = low)
+          - System relationship (same system = high, same target_system = medium)
 
-        Returns the event_id of the inferred upstream event, or None.
+        Returns the event_id of the highest-confidence match above min_confidence,
+        or None.
         """
-        # Look for recent events that targeted this event's system
-        # where a different actor was involved (cross-actor causation)
-        rows = self._conn.execute(
-            """SELECT event_id, actor_id, target_id, risk_score, timestamp
+        candidates = self._conn.execute(
+            """SELECT event_id, actor_id, actor_type, target_id, system_id,
+                      target_system, risk_score, timestamp
                FROM decision_events
-               WHERE system_id = ?
-                 AND actor_id != ?
+               WHERE actor_id != ?
                  AND decision != 'block'
                  AND timestamp >= ?
                  AND timestamp < ?
                ORDER BY timestamp DESC
-               LIMIT 1""",
+               LIMIT 10""",
             (
-                event.system_id,
                 event.actor_id,
                 _subtract_seconds(event.timestamp, window_seconds),
                 event.timestamp.isoformat(),
             ),
         ).fetchall()
 
-        if rows:
-            return rows[0]["event_id"]
+        if not candidates:
+            return None
 
-        # Broader check: any recent event whose target is in the same system
-        rows = self._conn.execute(
-            """SELECT event_id FROM decision_events
-               WHERE target_system = ?
-                 AND actor_id != ?
-                 AND decision != 'block'
-                 AND timestamp >= ?
-                 AND timestamp < ?
-               ORDER BY timestamp DESC
-               LIMIT 1""",
-            (
-                event.target_system,
-                event.actor_id,
-                _subtract_seconds(event.timestamp, window_seconds),
-                event.timestamp.isoformat(),
-            ),
-        ).fetchall()
+        best_id = None
+        best_confidence = 0.0
 
-        if rows:
-            return rows[0]["event_id"]
+        for c in candidates:
+            confidence = self._compute_trigger_confidence(event, c, window_seconds)
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_id = c["event_id"]
 
+        if best_id and best_confidence >= min_confidence:
+            return best_id
         return None
+
+    def get_trigger_confidence(self, event_id: str) -> float:
+        """Get the confidence score for an existing TRIGGERED edge."""
+        row = self._conn.execute(
+            """SELECT properties FROM graph_edges
+               WHERE edge_type = 'TRIGGERED' AND event_id = ?""",
+            (event_id,),
+        ).fetchone()
+        if row:
+            props = json.loads(row["properties"])
+            return props.get("confidence", 0.0)
+        return 0.0
+
+    def _compute_trigger_confidence(
+        self,
+        event: DecisionEvent,
+        candidate: sqlite3.Row,
+        window_seconds: int,
+    ) -> float:
+        """
+        Compute confidence that `candidate` triggered `event`.
+
+        Score = temporal_weight * 0.40 + system_weight * 0.35 + actor_compat * 0.25
+        """
+        import math
+
+        # Temporal proximity: exponential decay (half-life = window/4)
+        c_time = datetime.fromisoformat(candidate["timestamp"])
+        delta_seconds = (event.timestamp - c_time).total_seconds()
+        half_life = max(1.0, window_seconds / 4.0)
+        temporal = math.exp(-0.693 * delta_seconds / half_life)
+
+        # System relationship
+        if candidate["system_id"] == event.system_id:
+            system_weight = 1.0
+        elif candidate["target_system"] == event.target_system:
+            system_weight = 0.7
+        else:
+            system_weight = 0.2
+
+        # Actor type compatibility
+        pair = (candidate["actor_type"], event.actor_type)
+        actor_compat = self._ACTOR_CHAIN_COMPATIBILITY.get(pair, 0.3)
+
+        return temporal * 0.40 + system_weight * 0.35 + actor_compat * 0.25
+
+    # ── Graph TTL and archival ───────────────────────────────────────────────
+
+    def archive_old_events(self, max_age_days: int = 90) -> int:
+        """
+        Move decision events older than max_age_days to the cold archive.
+        Returns the number of archived events.
+
+        Creates an archive table if it doesn't exist, moves old events there,
+        and removes associated decision nodes and edges.
+        """
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS decision_events_archive (
+                event_id            TEXT PRIMARY KEY,
+                timestamp           TEXT NOT NULL,
+                actor_id            TEXT NOT NULL,
+                actor_name          TEXT NOT NULL,
+                actor_type          TEXT NOT NULL,
+                action_id           TEXT NOT NULL,
+                action_name         TEXT NOT NULL,
+                action_family       TEXT NOT NULL,
+                target_id           TEXT NOT NULL,
+                target_name         TEXT NOT NULL,
+                target_system       TEXT NOT NULL,
+                system_id           TEXT NOT NULL,
+                system_name         TEXT NOT NULL,
+                decision            TEXT NOT NULL,
+                risk_score          REAL NOT NULL,
+                drift_score         REAL NOT NULL DEFAULT 0.0,
+                trust_score         REAL NOT NULL DEFAULT 0.5,
+                is_anomalous        INTEGER NOT NULL DEFAULT 0,
+                triggered_by_event  TEXT,
+                archived_at         TEXT NOT NULL
+            )
+        """)
+
+        cutoff = _days_ago(max_age_days)
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Copy to archive
+        self._conn.execute(
+            """INSERT OR IGNORE INTO decision_events_archive
+               SELECT *, ? as archived_at FROM decision_events
+               WHERE timestamp < ?""",
+            (now, cutoff),
+        )
+
+        # Get event_ids to clean up
+        old_events = self._conn.execute(
+            "SELECT event_id FROM decision_events WHERE timestamp < ?",
+            (cutoff,),
+        ).fetchall()
+
+        if not old_events:
+            self._conn.commit()
+            return 0
+
+        event_ids = [r["event_id"] for r in old_events]
+        count = len(event_ids)
+
+        # Remove edges referencing these events
+        for eid in event_ids:
+            decision_node_id = f"decision:{eid}"
+            self._conn.execute(
+                "DELETE FROM graph_edges WHERE from_node = ? OR to_node = ?",
+                (decision_node_id, decision_node_id),
+            )
+            self._conn.execute(
+                "DELETE FROM graph_nodes WHERE node_id = ?",
+                (decision_node_id,),
+            )
+
+        # Remove from active events
+        placeholders = ",".join("?" * len(event_ids))
+        self._conn.execute(
+            f"DELETE FROM decision_events WHERE event_id IN ({placeholders})",
+            event_ids,
+        )
+
+        self._conn.commit()
+        return count
+
+    def apply_edge_decay(self, half_life_days: int = 60) -> int:
+        """
+        Apply exponential decay to edge weights based on age.
+        Uses the event timestamp (via decision_events) for age calculation,
+        not the edge creation time. Edges whose weight drops below 0.01 are removed.
+        Returns the number of edges removed.
+        """
+        import math
+
+        now = datetime.now(timezone.utc)
+        removed = 0
+
+        # Join with decision_events to get the event timestamp for accurate age
+        rows = self._conn.execute(
+            """SELECT e.id, COALESCE(de.timestamp, e.created_at) as event_time, e.weight
+               FROM graph_edges e
+               LEFT JOIN decision_events de ON e.event_id = de.event_id
+               WHERE e.edge_type = 'TRIGGERED'""",
+        ).fetchall()
+
+        for row in rows:
+            event_time = datetime.fromisoformat(row["event_time"])
+            age_days = (now - event_time).total_seconds() / 86400.0
+            decay = math.exp(-0.693 * age_days / half_life_days)
+            new_weight = row["weight"] * decay
+
+            if new_weight < 0.01:
+                self._conn.execute("DELETE FROM graph_edges WHERE id = ?", (row["id"],))
+                removed += 1
+            else:
+                self._conn.execute(
+                    "UPDATE graph_edges SET weight = ? WHERE id = ?",
+                    (round(new_weight, 4), row["id"]),
+                )
+
+        self._conn.commit()
+        return removed
+
+    def get_archive_count(self) -> int:
+        """Get the number of archived events."""
+        try:
+            row = self._conn.execute(
+                "SELECT COUNT(*) as cnt FROM decision_events_archive"
+            ).fetchone()
+            return row["cnt"] if row else 0
+        except sqlite3.OperationalError:
+            return 0  # archive table doesn't exist yet
 
     # ── Query: Actor blast radius ────────────────────────────────────────────
 

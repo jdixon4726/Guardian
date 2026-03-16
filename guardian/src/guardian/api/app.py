@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from guardian.feedback.store import FeedbackStore, FeedbackType
 from guardian.graph.models import EdgeType, NodeType
 from guardian.history.store import ActorProfile
 from guardian.models.action_request import ActionRequest, Decision, DecisionOutcome
@@ -67,12 +68,14 @@ if _STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 _pipeline: GuardianPipeline | None = None
+_feedback_store: FeedbackStore | None = None
 
 
 @app.on_event("startup")
 def startup() -> None:
-    global _pipeline
+    global _pipeline, _feedback_store
     logger.info("Loading Guardian pipeline from config: %s", CONFIG_DIR)
+    _feedback_store = FeedbackStore(str(AUDIT_LOG.parent / "feedback.sqlite"))
     _pipeline = GuardianPipeline.from_config(
         config_dir=CONFIG_DIR,
         policies_dir=POLICIES_DIR,
@@ -347,6 +350,136 @@ def reconciliation_report(
                 "explanation": a.explanation,
             }
             for a in report.ungoverned_actions
+        ],
+    })
+
+
+# ── Feedback Endpoints ───────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    feedback_type: str = Field(..., description="confirmed_correct, false_positive, false_negative, known_pattern")
+    operator: str = Field(..., min_length=1, max_length=255)
+    reason: str = Field(default="", max_length=2000)
+
+
+class FeedbackResponse(BaseModel):
+    feedback_id: str
+    decision_entry_id: str
+    feedback_type: str
+    operator: str
+    reason: str
+
+
+@app.post("/v1/decisions/{decision_id}/feedback", response_model=FeedbackResponse)
+def submit_feedback(
+    decision_id: str,
+    request: FeedbackRequest,
+    _auth: None = Depends(verify_api_key),
+) -> FeedbackResponse:
+    """Submit operator feedback on a Guardian decision."""
+    if _feedback_store is None:
+        raise HTTPException(status_code=503, detail="Feedback store not initialized")
+
+    try:
+        ft = FeedbackType(request.feedback_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid feedback type: {request.feedback_type}. "
+                   f"Must be one of: {', '.join(t.value for t in FeedbackType)}",
+        )
+
+    # Try to look up the decision for denormalized fields
+    pipeline = get_pipeline()
+    actor_name = actor_type = action_name = policy_matched = original_decision = None
+
+    log_path = pipeline.audit_logger.log_path
+    if log_path.exists():
+        with open(log_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    if entry.get("entry_id") == decision_id:
+                        req = entry.get("action_request", {})
+                        actor_name = req.get("actor_name")
+                        actor_type = req.get("actor_type")
+                        action_name = req.get("requested_action")
+                        policy_matched = entry.get("policy_matched")
+                        original_decision = entry.get("decision")
+                        break
+                except json.JSONDecodeError:
+                    continue
+
+    feedback = _feedback_store.record(
+        decision_entry_id=decision_id,
+        feedback_type=ft,
+        operator=request.operator,
+        reason=request.reason,
+        actor_name=actor_name,
+        actor_type=actor_type,
+        action_name=action_name,
+        policy_matched=policy_matched,
+        original_decision=original_decision,
+    )
+
+    return FeedbackResponse(
+        feedback_id=feedback.feedback_id,
+        decision_entry_id=decision_id,
+        feedback_type=ft.value,
+        operator=request.operator,
+        reason=request.reason,
+    )
+
+
+@app.get("/v1/feedback/stats")
+def feedback_stats(
+    actor: str | None = Query(default=None),
+    policy: str | None = Query(default=None),
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Get aggregate feedback statistics."""
+    if _feedback_store is None:
+        raise HTTPException(status_code=503, detail="Feedback store not initialized")
+
+    if actor:
+        stats = _feedback_store.get_stats_for_actor(actor)
+    elif policy:
+        stats = _feedback_store.get_stats_for_policy(policy)
+    else:
+        stats = _feedback_store.get_overall_stats()
+
+    return JSONResponse(content={
+        "total_feedback": stats.total_feedback,
+        "confirmed_correct": stats.confirmed_correct,
+        "false_positives": stats.false_positives,
+        "false_negatives": stats.false_negatives,
+        "known_patterns": stats.known_patterns,
+        "false_positive_rate": round(stats.false_positive_rate, 4),
+        "accuracy_rate": round(stats.accuracy_rate, 4),
+    })
+
+
+@app.get("/v1/feedback/prior-adjustments")
+def feedback_prior_adjustments(
+    _auth: None = Depends(verify_api_key),
+) -> JSONResponse:
+    """Get Bayesian prior adjustments derived from accumulated feedback."""
+    if _feedback_store is None:
+        raise HTTPException(status_code=503, detail="Feedback store not initialized")
+
+    adjustments = _feedback_store.compute_prior_adjustments()
+    return JSONResponse(content={
+        "adjustments": [
+            {
+                "actor_type": a.actor_type,
+                "alpha_adjustment": a.alpha_adjustment,
+                "beta_adjustment": a.beta_adjustment,
+                "reason": a.reason,
+            }
+            for a in adjustments
         ],
     })
 
