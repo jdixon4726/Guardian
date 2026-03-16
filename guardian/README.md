@@ -82,8 +82,8 @@ These would all be offline, advisory, and non-blocking. Guardian works without t
 
 ```bash
 # Clone and install
-git clone https://github.com/jdixon4726/Gaurdian.git
-cd Gaurdian/guardian
+git clone https://github.com/jdixon4726/Guardian.git
+cd Guardian/guardian
 pip install -e ".[dev]"
 
 # Start the API
