@@ -14,9 +14,15 @@ build/
 tests/test-audit.jsonl
 tests/test-adversarial-audit.jsonl
 tests/test-drift-audit.jsonl
+tests/test-replay-audit.jsonl
+tests/test-stryker-simulation-audit.jsonl
 tests/drift-alerts.jsonl
 tests/actor-history.sqlite
 tests/baselines.sqlite
+tests/.tmp/
+.pytest-tmp/
+*.sqlite-shm
+*.sqlite-wal
 
 # Runtime artifacts
 audit.jsonl
