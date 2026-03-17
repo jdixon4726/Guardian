@@ -62,17 +62,29 @@ class ActorProfile:
 
 
 class ActorHistoryStore:
-    """SQLite-backed append-only actor history store."""
+    """Database-backed append-only actor history store.
+
+    Accepts either a legacy db_path (SQLite) or a DatabaseConnection
+    from the storage abstraction layer (SQLite or PostgreSQL).
+    """
 
     def __init__(self, db_path: Path | str = ":memory:",
-                 trust_config: TrustConfig | None = None):
-        self._db_path = str(db_path)
+                 trust_config: TrustConfig | None = None,
+                 connection=None):
         self._trust = trust_config or _DEFAULT_TRUST
-        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.executescript(_SCHEMA)
-        logger.info("Actor history store initialized: %s", self._db_path)
+        if connection is not None:
+            # Use provided storage abstraction connection
+            self._conn = connection.raw
+            self._db_conn = connection
+        else:
+            # Legacy SQLite path (backward compatible)
+            self._db_path = str(db_path)
+            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._db_conn = None
+        self._conn.executescript(_SCHEMA) if not connection else connection.executescript(_SCHEMA)
+        logger.info("Actor history store initialized")
 
     def close(self) -> None:
         self._conn.close()

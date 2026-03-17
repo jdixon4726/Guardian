@@ -30,14 +30,23 @@ from guardian.graph.models import (
 
 
 class GraphStore:
-    """SQLite-backed decision graph storage."""
+    """Database-backed decision graph storage.
 
-    def __init__(self, db_path: Path | str = ":memory:"):
-        self._db_path = str(db_path)
-        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
+    Accepts either a legacy db_path (SQLite) or a DatabaseConnection
+    from the storage abstraction layer.
+    """
+
+    def __init__(self, db_path: Path | str = ":memory:", connection=None):
+        if connection is not None:
+            self._conn = connection.raw
+            self._db_conn = connection
+        else:
+            self._db_path = str(db_path)
+            self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._db_conn = None
         self._create_tables()
 
     def _create_tables(self) -> None:
