@@ -148,8 +148,37 @@ export default function ThreatIntel() {
       {loading && !overlays ? (
         <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading overlays...</div>
       ) : overlayList.length === 0 ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-          No overlays yet. Click "Sync Threat Feeds" to fetch the latest CISA KEV catalog.
+        <div>
+          <div className="card" style={{ padding: '16px', marginBottom: 8, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+            No feed overlays yet. Click "Sync Threat Feeds" to fetch the latest CISA KEV catalog, or review the built-in MITRE ATT&CK coverage below.
+          </div>
+          {/* Built-in MITRE ATT&CK coverage — always visible */}
+          <div style={{ marginTop: 8 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 8, color: 'var(--text-muted)' }}>MITRE ATT&CK Coverage</h3>
+            {[
+              { id: 'T1485', name: 'Data Destruction', tactic: 'Impact', actions: 'destroy_infrastructure, wipe_device', confidence: 'High' },
+              { id: 'T1562.001', name: 'Disable Security Tools', tactic: 'Defense Evasion', actions: 'disable_endpoint_protection', confidence: 'High' },
+              { id: 'T1098', name: 'Account Manipulation', tactic: 'Persistence', actions: 'grant_admin_access, modify_iam_role', confidence: 'High' },
+              { id: 'T1548', name: 'Abuse Elevation Control', tactic: 'Privilege Escalation', actions: 'escalate_privileges', confidence: 'High' },
+              { id: 'T1530', name: 'Data from Cloud Storage', tactic: 'Collection', actions: 'export_data', confidence: 'Medium' },
+              { id: 'T1078', name: 'Valid Accounts', tactic: 'Initial Access', actions: 'change_configuration', confidence: 'Medium' },
+              { id: 'T1136', name: 'Create Account', tactic: 'Persistence', actions: 'create_service_account', confidence: 'High' },
+              { id: 'T1490', name: 'Inhibit System Recovery', tactic: 'Impact', actions: 'destroy_infrastructure', confidence: 'High' },
+            ].map(t => (
+              <div key={t.id} className="card" style={{ marginBottom: 4, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--accent)', minWidth: 80 }}>{t.id}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{t.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Tactic: {t.tactic} | Actions: {t.actions}</div>
+                </div>
+                <span style={{
+                  fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                  background: t.confidence === 'High' ? 'rgba(63,185,80,0.15)' : 'rgba(210,153,34,0.15)',
+                  color: t.confidence === 'High' ? 'var(--green)' : 'var(--yellow)',
+                }}>{t.confidence}</span>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <div>

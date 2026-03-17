@@ -215,8 +215,47 @@ export default function ActorIntelligence() {
                 peerMax={0.85}
                 label="Trust vs. peer group"
               />
-              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-                History: {profile.history_days} days | Velocity: {profile.actions_last_hour}/hr, {profile.actions_last_day}/day
+              {/* Trust Model Explanation */}
+              <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Trust Computation</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Historical success rate</span>
+                    <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)' }}>
+                      {profile.total_actions > 0 ? (profile.total_allows / profile.total_actions).toFixed(2) : '0.50'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Block penalty ({profile.total_blocks} blocks)</span>
+                    <span style={{ fontFamily: 'var(--mono)', color: profile.total_blocks > 0 ? 'var(--red)' : 'var(--text-muted)' }}>
+                      -{(profile.total_blocks * 0.05).toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Review penalty ({profile.total_reviews} reviews)</span>
+                    <span style={{ fontFamily: 'var(--mono)', color: profile.total_reviews > 0 ? 'var(--yellow)' : 'var(--text-muted)' }}>
+                      -{(profile.total_reviews * 0.02).toFixed(2)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Allow bonus ({profile.total_allows} allows)</span>
+                    <span style={{ fontFamily: 'var(--mono)', color: profile.total_allows > 0 ? 'var(--green)' : 'var(--text-muted)' }}>
+                      +{(profile.total_allows * 0.005).toFixed(3)}
+                    </span>
+                  </div>
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 4, marginTop: 2, display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                    <span>Final Trust Score</span>
+                    <span style={{ fontFamily: 'var(--mono)', color: profile.trust_level >= 0.7 ? 'var(--green)' : profile.trust_level >= 0.4 ? 'var(--yellow)' : 'var(--red)' }}>
+                      {(profile.trust_level * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                  Peer group range: 40–85% | Window: {profile.history_days} days
+                </div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+                Velocity: {profile.actions_last_hour}/hr, {profile.actions_last_day}/day
                 {profile.first_seen && <> | First seen: {new Date(profile.first_seen).toLocaleDateString()}</>}
               </div>
             </div>

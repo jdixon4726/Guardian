@@ -6,6 +6,177 @@ import RiskGauge from '../components/RiskGauge'
 import RiskPulse from '../components/RiskPulse'
 import { SkeletonCard, SkeletonStats } from '../components/Skeleton'
 
+// ── Relative time formatter ─────────────────────────────────────────────────
+function relativeTime(ts) {
+  if (!ts) return '—'
+  const now = Date.now()
+  const then = new Date(ts).getTime()
+  const diffMs = now - then
+  if (diffMs < 0) return 'just now'
+  const seconds = Math.floor(diffMs / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
+// ── Simulation Mode Banner ──────────────────────────────────────────────────
+function SimulationBanner() {
+  return (
+    <div style={{
+      background: 'linear-gradient(90deg, rgba(210, 153, 11, 0.12), rgba(210, 153, 11, 0.06))',
+      border: '1px solid rgba(210, 153, 11, 0.25)',
+      borderRadius: 6,
+      padding: '8px 16px',
+      marginBottom: 16,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      fontSize: 12,
+      color: 'var(--yellow)',
+      fontFamily: 'var(--mono)',
+    }}>
+      <span style={{ fontSize: 14 }}>&#9888;</span>
+      <span>
+        Simulation Mode Active — Data shown is from attack scenario replays, not live production telemetry.
+      </span>
+    </div>
+  )
+}
+
+// ── System Observability Panel ──────────────────────────────────────────────
+function SystemObservability() {
+  const { data, loading } = useApi('/v1/system/status', { autoRefresh: 10000 })
+
+  const metrics = [
+    { label: 'Events Ingested', key: 'events_ingested', fallback: '—' },
+    { label: 'Active Actors', key: 'active_actors', fallback: '—' },
+    { label: 'Connected Systems', key: 'connected_systems', fallback: '—' },
+    { label: 'Graph Nodes Tracked', key: 'graph_nodes_tracked', fallback: '—' },
+  ]
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        fontSize: 11,
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        color: 'var(--text-muted)',
+        marginBottom: 8,
+        fontWeight: 600,
+      }}>
+        System Status
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        {metrics.map(m => (
+          <div key={m.key} className="stat-card" style={{
+            flex: 1,
+            padding: '10px 14px',
+            minWidth: 0,
+          }}>
+            <div className="stat-value" style={{
+              fontSize: 20,
+              color: 'var(--text)',
+              fontVariantNumeric: 'tabular-nums',
+              opacity: loading && !data ? 0.3 : 1,
+            }}>
+              {data?.[m.key] != null ? data[m.key].toLocaleString() : m.fallback}
+            </div>
+            <div className="stat-label" style={{ fontSize: 11 }}>{m.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Connected Systems Panel ─────────────────────────────────────────────────
+function ConnectedSystems() {
+  const { data, loading } = useApi('/v1/systems/connected', { autoRefresh: 30000 })
+
+  if (loading && !data) return null
+
+  const systems = data?.systems || data || []
+  if (!Array.isArray(systems) || systems.length === 0) return null
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        fontSize: 11,
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        color: 'var(--text-muted)',
+        marginBottom: 8,
+        fontWeight: 600,
+      }}>
+        Connected Systems
+      </div>
+      <div style={{
+        display: 'flex',
+        gap: 10,
+        overflowX: 'auto',
+        paddingBottom: 4,
+        scrollbarWidth: 'thin',
+      }}>
+        {systems.map((sys, i) => {
+          const isActive = (sys.status || '').toLowerCase() === 'active'
+          return (
+            <div key={sys.name || i} className="card" style={{
+              padding: '10px 14px',
+              minWidth: 160,
+              flexShrink: 0,
+              borderLeft: `3px solid ${isActive ? 'var(--green)' : 'var(--border)'}`,
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: 6,
+              }}>
+                <span style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: isActive ? 'var(--green)' : 'var(--text-muted)',
+                  display: 'inline-block',
+                  flexShrink: 0,
+                }} />
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {sys.name}
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                fontSize: 11,
+                color: 'var(--text-muted)',
+              }}>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {sys.event_count != null ? `${sys.event_count.toLocaleString()} events` : '—'}
+                </span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>
+                  {relativeTime(sys.last_event)}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Empty state with demo data loader ────────────────────────────────────────
 function EmptyState() {
   const [loading, setLoading] = useState(false)
@@ -71,6 +242,21 @@ function classifySeverity(decision) {
   if (decision.decision === 'require_review' && decision.risk_score >= 0.5) return 'critical'
   if (decision.decision === 'require_review') return 'warning'
   return 'info'
+}
+
+// ── System classification helper ────────────────────────────────────────────
+function classifySystem(actorName) {
+  const name = (actorName || '').toLowerCase()
+  if (name.includes('terraform')) return 'Terraform'
+  if (name.includes('argocd') || name.includes('k8s') || name.includes('cert-') || name.includes('kubernetes')) return 'Kubernetes'
+  if (name.includes('github') || name.includes('ci-') || name.includes('gitlab') || name.includes('jenkins') || name.includes('circleci')) return 'CI/CD'
+  if (name.includes('datadog') || name.includes('monitor') || name.includes('prometheus') || name.includes('grafana')) return 'Monitoring'
+  if (name.includes('mcp-') || name.includes('a2a-') || name.includes('ai-')) return 'AI Agents'
+  if (name.includes('intune') || name.includes('jamf')) return 'MDM/UEM'
+  if (name.includes('aws-')) return 'AWS'
+  if (name.includes('entra') || name.includes('okta') || name.includes('azure-ad')) return 'Identity'
+  if (name.includes('data-pipeline') || name.includes('data-')) return 'Data'
+  return 'Other'
 }
 
 // ── Action Items: "What needs attention right now?" ─────────────────────────
@@ -163,17 +349,7 @@ function SystemTabs({ decisions, activeSystem, onSelect }) {
     if (!decisions) return []
     const counts = {}
     decisions.forEach(d => {
-      // Extract system from target_asset or use a generic category
-      const system = d.actor_name.includes('terraform') ? 'Terraform'
-        : d.actor_name.includes('argocd') || d.actor_name.includes('k8s') || d.actor_name.includes('cert-') ? 'Kubernetes'
-        : d.actor_name.includes('github') || d.actor_name.includes('ci-') ? 'CI/CD'
-        : d.actor_name.includes('datadog') || d.actor_name.includes('monitor') ? 'Monitoring'
-        : d.actor_name.includes('ai-') || d.actor_name.includes('mcp-') || d.actor_name.includes('a2a-') ? 'AI Agents'
-        : d.actor_name.includes('intune') || d.actor_name.includes('jamf') ? 'MDM/UEM'
-        : d.actor_name.includes('aws-') ? 'AWS'
-        : d.actor_name.includes('entra') ? 'Identity'
-        : d.actor_name.includes('data-pipeline') ? 'Data'
-        : 'Other'
+      const system = classifySystem(d.actor_name)
       counts[system] = (counts[system] || 0) + 1
     })
     return Object.entries(counts)
@@ -239,16 +415,7 @@ export default function CommandCenter() {
     let decisions = data.decisions
 
     if (activeSystem) {
-      decisions = decisions.filter(d => {
-        const system = d.actor_name.includes('terraform') ? 'Terraform'
-          : d.actor_name.includes('argocd') || d.actor_name.includes('k8s') || d.actor_name.includes('cert-') ? 'Kubernetes'
-          : d.actor_name.includes('github') || d.actor_name.includes('ci-') ? 'CI/CD'
-          : d.actor_name.includes('datadog') || d.actor_name.includes('monitor') ? 'Monitoring'
-          : d.actor_name.includes('ai-') ? 'AI Agents'
-          : d.actor_name.includes('data-pipeline') ? 'Data'
-          : 'Other'
-        return system === activeSystem
-      })
+      decisions = decisions.filter(d => classifySystem(d.actor_name) === activeSystem)
     }
 
     // Sort: critical first, then warning, then info, then by time
@@ -267,10 +434,19 @@ export default function CommandCenter() {
 
   return (
     <div>
+      {/* Simulation Mode Banner */}
+      <SimulationBanner />
+
       <div className="page-header">
         <h1>Command Center</h1>
         <p>Real-time governance decision feed</p>
       </div>
+
+      {/* System Observability — high-level metrics */}
+      <SystemObservability />
+
+      {/* Connected Systems — horizontal scroll */}
+      <ConnectedSystems />
 
       {/* Action Items — "What needs my attention?" */}
       {data && (
