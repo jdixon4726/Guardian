@@ -154,8 +154,12 @@ export default function DecisionCard({ entry, severity, isExpanded, onToggle, on
   const explanation = generateExplanation(entry)
   const nextStep = getNextStep(entry)
 
-  const riskFactors = (entry.risk_signals && entry.risk_signals.length > 0)
-    ? entry.risk_signals
+  const riskFactors = (entry.risk_signals && Array.isArray(entry.risk_signals) && entry.risk_signals.length > 0)
+    ? entry.risk_signals.map(s => ({
+        source: String(s.source || 'unknown'),
+        description: String(s.description || ''),
+        contribution: Number(s.contribution) || 0,
+      }))
     : generateSyntheticFactors(entry)
 
   const lineageChain = buildLineageChain(entry)
