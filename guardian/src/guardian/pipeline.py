@@ -46,6 +46,7 @@ from guardian.models.action_request import (
 from guardian.policy.engine import PolicyEngine
 from guardian.policy.loaders import PolicyLoader
 from guardian.scoring.engine import RiskScoringEngine
+from guardian.threat_intel.overlay_engine import OverlayEngine
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,7 @@ class GuardianPipeline:
             store=self.graph_store,
             scoring_config=cfg.scoring,
         )
+        self.overlay_engine = OverlayEngine()
         self._baseline_job = BaselineRecomputeJob(self.baseline_store)
         self._baseline_job.start()
 
@@ -166,6 +168,27 @@ class GuardianPipeline:
         if cascade_risk > 0:
             risk_score = min(1.0, risk_score + cascade_risk)
             risk_signals.extend(cascade_signals)
+
+        # Stage 5.5: Threat Intelligence Overlays
+        # Overlays can only INCREASE risk (anti-poisoning invariant)
+        try:
+            overlay_adj, overlay_titles = self.overlay_engine.get_adjustment(
+                action=request.requested_action,
+                system=request.target_system,
+                actor=request.actor_name,
+            )
+            if overlay_adj > 0:
+                risk_score = min(1.0, risk_score + overlay_adj)
+                risk_signals.append(RiskSignal(
+                    source="threat_intel",
+                    description=(
+                        f"Active threat overlay: {'; '.join(overlay_titles[:3])} "
+                        f"(+{overlay_adj:.2f} risk)"
+                    ),
+                    contribution=round(overlay_adj, 3),
+                ))
+        except Exception:
+            pass  # threat intel is best-effort, never blocks evaluation
 
         # Stage 6: Decision Engine
         risk_signals_summary = "; ".join(

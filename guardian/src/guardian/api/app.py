@@ -923,6 +923,65 @@ def _map_demo_event(event, mappers) -> ActionRequest | None:
     return None
 
 
+# ── Threat Intelligence Endpoints ────────────────────────────────────────────
+
+@app.post("/v1/threat-intel/sync")
+async def sync_threat_feeds(
+    _auth: None = Depends(verify_api_key),
+) -> dict:
+    """Sync threat feeds (CISA KEV) and create risk overlays."""
+    from guardian.threat_intel.feeds import CISAKEVFeed
+    pipeline = get_pipeline()
+    kev_feed = CISAKEVFeed(pipeline.overlay_engine)
+    result = await kev_feed.sync()
+    # Auto-expire stale overlays
+    expired = pipeline.overlay_engine.expire_stale()
+    return {
+        "source": result.source.value,
+        "success": result.success,
+        "entries_processed": result.entries_processed,
+        "overlays_created": result.overlays_created,
+        "overlays_expired": expired,
+        "feed_hash": result.feed_hash,
+        "errors": result.errors,
+    }
+
+
+@app.get("/v1/threat-intel/overlays")
+def list_overlays(status: str = "") -> list[dict]:
+    """List risk overlays, optionally filtered by status."""
+    from guardian.threat_intel.models import OverlayStatus
+    pipeline = get_pipeline()
+    if status:
+        return pipeline.overlay_engine.list_overlays(OverlayStatus(status))
+    return pipeline.overlay_engine.list_overlays()
+
+
+@app.post("/v1/threat-intel/overlays/{overlay_id}/activate")
+def activate_overlay(overlay_id: str, activated_by: str = "admin") -> dict:
+    """Approve and activate a pending overlay."""
+    pipeline = get_pipeline()
+    success = pipeline.overlay_engine.activate(overlay_id, activated_by)
+    return {"overlay_id": overlay_id, "activated": success}
+
+
+@app.post("/v1/threat-intel/overlays/{overlay_id}/reject")
+def reject_overlay(
+    overlay_id: str, rejected_by: str = "admin", reason: str = "",
+) -> dict:
+    """Reject a pending overlay after review."""
+    pipeline = get_pipeline()
+    success = pipeline.overlay_engine.reject(overlay_id, rejected_by, reason)
+    return {"overlay_id": overlay_id, "rejected": success}
+
+
+@app.get("/v1/threat-intel/audit")
+def threat_intel_audit(overlay_id: str = "") -> list[dict]:
+    """Get audit trail for threat intelligence overlays."""
+    pipeline = get_pipeline()
+    return pipeline.overlay_engine.get_audit_log(overlay_id or None)
+
+
 @app.get("/metrics")
 def prometheus_metrics() -> Response:
     """Prometheus-compatible metrics endpoint."""
