@@ -98,12 +98,9 @@ function ConnectedSystems({ decisions, onSystemSelect }) {
   const { data, loading } = useApi('/v1/systems/connected', { autoRefresh: 30000 })
   const [expanded, setExpanded] = useState(null)
 
-  if (loading && !data) return null
-
   const systems = data?.systems || data || []
-  if (!Array.isArray(systems) || systems.length === 0) return null
 
-  // Build per-system decision breakdown from decision data
+  // Hooks must run in the same order on every render, even before data loads.
   const systemDecisions = useMemo(() => {
     if (!decisions || !Array.isArray(decisions)) return {}
     const bySystem = {}
@@ -120,6 +117,10 @@ function ConnectedSystems({ decisions, onSystemSelect }) {
     })
     return bySystem
   }, [decisions])
+
+  if (loading && !data) return null
+
+  if (!Array.isArray(systems) || systems.length === 0) return null
 
   // Match decisions to a connected system by pattern
   const getSystemStats = (sys) => {
