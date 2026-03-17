@@ -13,35 +13,16 @@ import ThreatIntel from './views/ThreatIntel'
 import Onboarding from './views/Onboarding'
 import Compliance from './views/Compliance'
 
-function NavGroup({ label, children }) {
-  return (
-    <li className="nav-group">
-      <div className="nav-group-label">{label}</div>
-      <ul className="nav-group-items">{children}</ul>
-    </li>
-  )
-}
-
 function App() {
   const { theme, toggle } = useTheme()
   const { data: health } = useApi('/v1/health', { autoRefresh: 15000 })
-  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const healthStatus = health?.status || 'unknown'
   const shadowMode = health?.shadow_mode || false
 
   return (
     <div className="app">
-      {/* Mobile hamburger */}
-      <button
-        className="sidebar-toggle"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        aria-label="Toggle navigation"
-      >
-        {sidebarOpen ? '\u2715' : '\u2630'}
-      </button>
-
-      <nav className={`sidebar ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
+      <nav className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-logo">
             <span className="logo-icon">&#9678;</span> Guardian
@@ -54,26 +35,20 @@ function App() {
         </div>
 
         <ul className="sidebar-nav">
-          {/* Operations */}
-          <NavGroup label="Operations">
-            <li><NavLink to="/" end>&#9670; Command Center</NavLink></li>
-            <li><NavLink to="/actors">&#9673; Actor Intelligence</NavLink></li>
-            <li><NavLink to="/reconciliation">&#9638; Reconciliation</NavLink></li>
-          </NavGroup>
+          <li className="nav-group-label">Operations</li>
+          <li><NavLink to="/" end>&#9670; Command Center</NavLink></li>
+          <li><NavLink to="/actors">&#9673; Actor Intelligence</NavLink></li>
+          <li><NavLink to="/reconciliation">&#9638; Reconciliation</NavLink></li>
 
-          {/* Intelligence */}
-          <NavGroup label="Intelligence">
-            <li><NavLink to="/graph">&#9700; Automation Graph</NavLink></li>
-            <li><NavLink to="/blast-radius">&#9681; Blast Radius</NavLink></li>
-            <li><NavLink to="/threat-intel">&#9888; Threat Intel</NavLink></li>
-          </NavGroup>
+          <li className="nav-group-label">Intelligence</li>
+          <li><NavLink to="/graph">&#9700; Automation Graph</NavLink></li>
+          <li><NavLink to="/blast-radius">&#9681; Blast Radius</NavLink></li>
+          <li><NavLink to="/threat-intel">&#9888; Threat Intel</NavLink></li>
 
-          {/* Governance */}
-          <NavGroup label="Governance">
-            <li><NavLink to="/compliance">&#9745; Compliance</NavLink></li>
-            <li><NavLink to="/feedback">&#10003; Feedback</NavLink></li>
-            <li><NavLink to="/onboard">&#9881; Setup</NavLink></li>
-          </NavGroup>
+          <li className="nav-group-label">Governance</li>
+          <li><NavLink to="/compliance">&#9745; Compliance</NavLink></li>
+          <li><NavLink to="/feedback">&#10003; Feedback</NavLink></li>
+          <li><NavLink to="/onboard">&#9881; Setup</NavLink></li>
         </ul>
 
         <div className="sidebar-footer">
@@ -84,7 +59,7 @@ function App() {
         </div>
       </nav>
 
-      <main className={`main-content ${sidebarOpen ? '' : 'main-expanded'}`}>
+      <main className="main-content">
         <Routes>
           <Route path="/" element={<CommandCenter />} />
           <Route path="/actors" element={<ActorIntelligence />} />

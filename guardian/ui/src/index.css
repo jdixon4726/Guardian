@@ -579,7 +579,6 @@ button.secondary { background: var(--surface-solid); border: 1px solid var(--bor
 
 /* ── Sidebar Navigation Groups ───────────────────────────────── */
 
-.nav-group { margin-bottom: var(--space-2); }
 .nav-group-label {
   font-size: 10px;
   font-weight: 600;
@@ -587,9 +586,12 @@ button.secondary { background: var(--surface-solid); border: 1px solid var(--bor
   letter-spacing: 0.8px;
   color: var(--text-muted);
   padding: var(--space-3) var(--space-5) var(--space-1);
-  opacity: 0.6;
+  opacity: 0.5;
+  list-style: none;
+  pointer-events: none;
+  margin-top: var(--space-2);
 }
-.nav-group-items { list-style: none; }
+.nav-group-label:first-child { margin-top: 0; }
 
 /* ── Sidebar Toggle (Mobile) ─────────────────────────────────── */
 
