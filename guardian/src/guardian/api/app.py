@@ -178,6 +178,15 @@ def startup() -> None:
         logger.info("Guardian running in SHADOW MODE — advisory only, no enforcement")
     logger.info("Guardian pipeline ready.")
 
+    # Auto-ingest demo data if audit log is empty (first deploy)
+    if os.getenv("GUARDIAN_AUTO_DEMO", "true").lower() == "true":
+        if not AUDIT_LOG.exists() or AUDIT_LOG.stat().st_size == 0:
+            logger.info("Empty audit log detected — auto-ingesting demo data...")
+            try:
+                _auto_ingest_demo()
+            except Exception as exc:
+                logger.warning("Auto demo ingest failed (non-fatal): %s", exc)
+
 
 def get_pipeline() -> GuardianPipeline:
     if _pipeline is None:
@@ -861,6 +870,50 @@ async def ingest_demo(request: Request) -> dict:
         "blocked": total_blocked,
         "require_review": total_review,
     }
+
+
+def _auto_ingest_demo() -> None:
+    """Ingest demo scenario data on first startup."""
+    import json as _json
+    from guardian.simulator.models import Scenario
+    from guardian.adapters.intune.mapper import IntuneActionMapper
+    from guardian.adapters.entra_id.mapper import EntraAdminMapper
+    from guardian.adapters.jamf.mapper import JamfCommandMapper
+    from guardian.adapters.github_actions.mapper import GitHubDeploymentMapper
+    from guardian.adapters.aws_eventbridge.mapper import CloudTrailMapper
+
+    mappers = {
+        "intune": IntuneActionMapper(),
+        "entra_id": EntraAdminMapper(),
+        "jamf": JamfCommandMapper(),
+        "github": GitHubDeploymentMapper(),
+        "aws": CloudTrailMapper(),
+    }
+
+    count = 0
+    for d in [_ROOT / "scenarios", _ROOT / "simulator" / "scenarios"]:
+        if not d.exists():
+            continue
+        for f in sorted(d.glob("*.json")):
+            try:
+                with open(f) as fh:
+                    data = _json.load(fh)
+                scenario = Scenario(**data)
+                if scenario.metadata.register_actors and _pipeline:
+                    for actor in scenario.metadata.register_actors:
+                        _pipeline.attestor.registry._actors[actor["name"]] = actor
+                for event in scenario.events:
+                    try:
+                        req = _map_demo_event(event, mappers)
+                        if req and _pipeline:
+                            _pipeline.evaluate(req)
+                            count += 1
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    logger.info("Auto demo ingest complete: %d events evaluated", count)
 
 
 def _map_demo_event(event, mappers) -> ActionRequest | None:

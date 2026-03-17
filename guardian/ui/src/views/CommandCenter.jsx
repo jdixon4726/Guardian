@@ -1,10 +1,68 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useApi } from '../hooks/useApi'
+import { useApi, postApi } from '../hooks/useApi'
 import DecisionCard from '../components/DecisionCard'
 import RiskGauge from '../components/RiskGauge'
 import RiskPulse from '../components/RiskPulse'
 import { SkeletonCard, SkeletonStats } from '../components/Skeleton'
+
+// ── Empty state with demo data loader ────────────────────────────────────────
+function EmptyState() {
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const loadDemo = async () => {
+    setLoading(true)
+    try {
+      const res = await postApi('/v1/ingest/demo', {})
+      setResult(res)
+      // Reload after short delay to show new data
+      setTimeout(() => window.location.reload(), 1500)
+    } catch (err) {
+      setResult({ error: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ textAlign: 'center', padding: '48px 32px' }}>
+      <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.3 }}>&#9678;</div>
+      <h3 style={{ margin: '0 0 8px', color: 'var(--text)' }}>No decisions yet</h3>
+      <p style={{ color: 'var(--text-muted)', margin: '0 0 24px', maxWidth: 420, marginInline: 'auto', lineHeight: 1.5 }}>
+        Guardian is running but hasn't evaluated any actions yet.
+        Load demo data to see 10 real-world attack scenarios (Stryker wiper, SolarWinds, Uber breach, and more) evaluated through the full pipeline.
+      </p>
+      <button
+        onClick={loadDemo}
+        disabled={loading}
+        style={{
+          background: 'var(--accent)',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 6,
+          padding: '10px 24px',
+          fontSize: 14,
+          fontWeight: 600,
+          cursor: loading ? 'wait' : 'pointer',
+          opacity: loading ? 0.6 : 1,
+        }}
+      >
+        {loading ? 'Loading scenarios...' : 'Load Demo Data'}
+      </button>
+      {result && !result.error && (
+        <p style={{ color: 'var(--green)', marginTop: 12, fontSize: 13 }}>
+          Loaded {result.total_events} events from {result.scenarios_run?.length || 0} scenarios. Refreshing...
+        </p>
+      )}
+      {result?.error && (
+        <p style={{ color: 'var(--red)', marginTop: 12, fontSize: 13 }}>
+          Error: {result.error}
+        </p>
+      )}
+    </div>
+  )
+}
 
 // ── Severity simplification: 3 tiers ────────────────────────────────────────
 // Research: 3 levels maximum. Critical (needs action), Warning (monitor), Info.
@@ -110,7 +168,10 @@ function SystemTabs({ decisions, activeSystem, onSelect }) {
         : d.actor_name.includes('argocd') || d.actor_name.includes('k8s') || d.actor_name.includes('cert-') ? 'Kubernetes'
         : d.actor_name.includes('github') || d.actor_name.includes('ci-') ? 'CI/CD'
         : d.actor_name.includes('datadog') || d.actor_name.includes('monitor') ? 'Monitoring'
-        : d.actor_name.includes('ai-') ? 'AI Agents'
+        : d.actor_name.includes('ai-') || d.actor_name.includes('mcp-') || d.actor_name.includes('a2a-') ? 'AI Agents'
+        : d.actor_name.includes('intune') || d.actor_name.includes('jamf') ? 'MDM/UEM'
+        : d.actor_name.includes('aws-') ? 'AWS'
+        : d.actor_name.includes('entra') ? 'Identity'
         : d.actor_name.includes('data-pipeline') ? 'Data'
         : 'Other'
       counts[system] = (counts[system] || 0) + 1
@@ -303,9 +364,7 @@ export default function CommandCenter() {
             />
           ))}
           {filteredDecisions.length === 0 && (
-            <div className="card" style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-              No decisions found. Submit evaluations through the API to see them here.
-            </div>
+            <EmptyState />
           )}
         </div>
       )}
