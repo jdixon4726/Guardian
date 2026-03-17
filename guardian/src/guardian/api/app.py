@@ -256,12 +256,14 @@ class DecisionSummary(BaseModel):
     entry_id: str
     actor_name: str
     action: str
+    target_system: str = ""
     target_asset: str
     decision: str
     risk_score: float
     risk_band: str
     drift_score: float | None
     evaluated_at: str
+    risk_signals: list[dict] = []
 
 
 class RecentDecisionsResponse(BaseModel):
@@ -407,16 +409,25 @@ def recent_decisions(
                 band = "critical"
 
             drift = entry.get("drift_score")
+            # Extract risk signals if available
+            signals = entry.get("risk_signals", [])
+            if isinstance(signals, list):
+                signals = [s if isinstance(s, dict) else {} for s in signals]
+            else:
+                signals = []
+
             summaries.append(DecisionSummary(
                 entry_id=entry.get("entry_id", ""),
                 actor_name=req.get("actor_name", ""),
                 action=req.get("requested_action", ""),
+                target_system=req.get("target_system", ""),
                 target_asset=req.get("target_asset", ""),
                 decision=entry.get("decision", ""),
                 risk_score=score,
                 risk_band=band,
                 drift_score=drift.get("score") if isinstance(drift, dict) else None,
                 evaluated_at=entry.get("evaluated_at", ""),
+                risk_signals=signals,
             ))
         except (json.JSONDecodeError, KeyError):
             continue

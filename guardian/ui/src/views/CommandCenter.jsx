@@ -105,9 +105,10 @@ function ConnectedSystems({ decisions, onSystemSelect }) {
 
   // Build per-system decision breakdown from decision data
   const systemDecisions = useMemo(() => {
-    if (!decisions) return {}
+    if (!decisions || !Array.isArray(decisions)) return {}
     const bySystem = {}
     decisions.forEach(d => {
+      if (!d) return
       const sys = d.target_system || d.action || 'unknown'
       if (!bySystem[sys]) bySystem[sys] = { blocks: 0, reviews: 0, allows: 0, actors: new Set(), topActions: {} }
       if (d.decision === 'block') bySystem[sys].blocks++
