@@ -92,6 +92,10 @@ if os.getenv("GUARDIAN_JSON_LOGS", "").lower() == "true":
 # Serve the dashboard UI
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.exists():
+    # Mount /assets for Vite build output (JS/CSS bundles)
+    _ASSETS_DIR = _STATIC_DIR / "assets"
+    if _ASSETS_DIR.exists():
+        app.mount("/assets", StaticFiles(directory=str(_ASSETS_DIR)), name="assets")
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 _pipeline: GuardianPipeline | None = None
