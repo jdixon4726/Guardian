@@ -979,14 +979,24 @@ def _map_demo_event(event, mappers) -> ActionRequest | None:
 # ── Threat Intelligence Endpoints ────────────────────────────────────────────
 
 @app.post("/v1/threat-intel/sync")
-async def sync_threat_feeds(
-    _auth: None = Depends(verify_api_key),
-) -> dict:
+async def sync_threat_feeds() -> dict:
     """Sync threat feeds (CISA KEV) and create risk overlays."""
     from guardian.threat_intel.feeds import CISAKEVFeed
     pipeline = get_pipeline()
     kev_feed = CISAKEVFeed(pipeline.overlay_engine)
-    result = await kev_feed.sync()
+    try:
+        result = await kev_feed.sync()
+    except Exception as exc:
+        logger.error("Threat feed sync failed: %s", exc)
+        return {
+            "source": "cisa_kev",
+            "success": False,
+            "entries_processed": 0,
+            "overlays_created": 0,
+            "overlays_expired": 0,
+            "feed_hash": "",
+            "errors": [str(exc)],
+        }
     # Auto-expire stale overlays
     expired = pipeline.overlay_engine.expire_stale()
     return {
@@ -1026,6 +1036,37 @@ def reject_overlay(
     pipeline = get_pipeline()
     success = pipeline.overlay_engine.reject(overlay_id, rejected_by, reason)
     return {"overlay_id": overlay_id, "rejected": success}
+
+
+@app.post("/v1/admin/reload-policies")
+async def reload_policies(
+    _auth: None = Depends(verify_api_key),
+) -> dict:
+    """
+    Hot-reload policy rules from disk without restarting.
+
+    Reads policy YAML files from GUARDIAN_POLICIES_DIR and replaces
+    the in-memory policy engine. Requires API key authentication.
+    """
+    from guardian.policy.loaders import PolicyLoader
+    from guardian.policy.engine import PolicyEngine
+    pipeline = get_pipeline()
+    try:
+        loader = PolicyLoader(POLICIES_DIR)
+        deny_rules, conditional_rules, allow_rules = loader.load_all()
+        pipeline.policy_engine = PolicyEngine(deny_rules, conditional_rules, allow_rules)
+        total = len(deny_rules) + len(conditional_rules) + len(allow_rules)
+        logger.info("Policies hot-reloaded: %d rules", total)
+        return {
+            "status": "reloaded",
+            "deny_rules": len(deny_rules),
+            "conditional_rules": len(conditional_rules),
+            "allow_rules": len(allow_rules),
+            "total_rules": total,
+        }
+    except Exception as exc:
+        logger.error("Policy reload failed: %s", exc)
+        raise HTTPException(500, f"Policy reload failed: {exc}")
 
 
 @app.get("/v1/threat-intel/audit")

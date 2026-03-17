@@ -103,8 +103,8 @@ class CISAKEVFeed:
         result = FeedSyncResult(source=ThreatFeedSource.cisa_kev)
 
         try:
-            async with httpx.AsyncClient(verify=True) as client:
-                resp = await client.get(url, timeout=30.0)
+            async with httpx.AsyncClient(verify=True, follow_redirects=True) as client:
+                resp = await client.get(url, timeout=60.0)
                 resp.raise_for_status()
 
             raw = resp.text
