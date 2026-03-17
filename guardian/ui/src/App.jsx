@@ -9,6 +9,7 @@ import BlastRadius from './views/BlastRadius'
 import FeedbackAccuracy from './views/FeedbackAccuracy'
 import Reconciliation from './views/Reconciliation'
 import ThreatIntel from './views/ThreatIntel'
+import Onboarding from './views/Onboarding'
 
 function App() {
   const { theme, toggle } = useTheme()
@@ -39,6 +40,7 @@ function App() {
           <li><NavLink to="/feedback">&#10003; Feedback & Accuracy</NavLink></li>
           <li><NavLink to="/reconciliation">&#9638; Reconciliation</NavLink></li>
           <li><NavLink to="/threat-intel">&#9888; Threat Intel</NavLink></li>
+          <li><NavLink to="/onboard">&#9881; Setup</NavLink></li>
         </ul>
 
         <div className="sidebar-footer">
@@ -58,6 +60,7 @@ function App() {
           <Route path="/feedback" element={<FeedbackAccuracy />} />
           <Route path="/reconciliation" element={<Reconciliation />} />
           <Route path="/threat-intel" element={<ThreatIntel />} />
+          <Route path="/onboard" element={<Onboarding />} />
         </Routes>
       </main>
     </div>

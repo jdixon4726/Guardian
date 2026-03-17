@@ -1132,6 +1132,147 @@ def metrics_json() -> dict:
     return metrics.snapshot()
 
 
+# ── Onboarding Endpoints ─────────────────────────────────────────────────────
+
+_discovery_engine = None
+
+
+def _get_discovery():
+    global _discovery_engine
+    if _discovery_engine is None:
+        from guardian.onboarding.discovery import DiscoveryEngine
+        _discovery_engine = DiscoveryEngine()
+    return _discovery_engine
+
+
+@app.get("/v1/onboard/status")
+def onboard_status() -> dict:
+    """
+    Get current onboarding progress.
+
+    Shows discovery phase, events ingested, actors/assets/systems discovered,
+    and whether config has been generated and applied.
+    """
+    return _get_discovery().get_status()
+
+
+@app.post("/v1/onboard/ingest-events")
+async def onboard_ingest_events(request: Request) -> dict:
+    """
+    Ingest raw events into the discovery engine.
+
+    Accepts a JSON array of event objects. Each event should have at least:
+    actor_name, action, target_system, target_asset.
+
+    Events are analyzed to discover actors, assets, systems, and behavioral
+    patterns. After ingesting enough data, call /v1/onboard/discover to
+    generate a configuration recommendation.
+    """
+    body = await request.json()
+    events = body if isinstance(body, list) else body.get("events", [])
+    engine = _get_discovery()
+    count = engine.ingest_batch(events)
+    status = engine.get_status()
+    return {
+        "ingested": count,
+        "total_events": status["events_ingested"],
+        "actors_discovered": status["actors_discovered"],
+        "assets_discovered": status["assets_discovered"],
+        "systems_discovered": status["systems_discovered"],
+    }
+
+
+@app.post("/v1/onboard/discover")
+def onboard_discover() -> dict:
+    """
+    Generate a discovery report from accumulated observations.
+
+    Analyzes all ingested events and returns:
+    - Discovered actors with recommended privilege levels
+    - Discovered assets with recommended criticality
+    - Discovered systems with adapter recommendations
+    - Recommended risk posture based on observed patterns
+    """
+    engine = _get_discovery()
+    report = engine.generate_report()
+    return report.model_dump(mode="json")
+
+
+@app.post("/v1/onboard/apply")
+def onboard_apply() -> dict:
+    """
+    Apply discovered configuration to the live Guardian pipeline.
+
+    Registers discovered actors in the actor registry, sets up
+    recommended configuration, and transitions to active governance.
+    This activates Guardian for the org.
+    """
+    pipeline = get_pipeline()
+    engine = _get_discovery()
+    return engine.apply_config(pipeline)
+
+
+@app.get("/v1/onboard/templates")
+def onboard_templates() -> list[dict]:
+    """
+    List available industry templates.
+
+    Each template provides scoring weights, adapter recommendations,
+    and compliance framework mappings tailored to an industry vertical.
+    """
+    from guardian.onboarding.templates import list_templates
+    return list_templates()
+
+
+@app.post("/v1/onboard/apply-template")
+async def onboard_apply_template(request: Request) -> dict:
+    """
+    Apply an industry template to Guardian's configuration.
+
+    Accepts: { "industry": "healthcare" | "fintech" | "saas" | "government" | "general" }
+
+    Updates scoring weights, circuit breaker thresholds, and returns
+    recommended adapters and compliance frameworks for the industry.
+    """
+    from guardian.onboarding.models import IndustryTemplate
+    from guardian.onboarding.templates import get_template
+
+    body = await request.json()
+    industry = IndustryTemplate(body.get("industry", "general"))
+    template = get_template(industry)
+
+    pipeline = get_pipeline()
+
+    # Apply scoring overrides
+    overrides = template.get("scoring_overrides", {})
+    if "action_category_scores" in overrides:
+        for cat, score in overrides["action_category_scores"].items():
+            pipeline.config.scoring.action_category_scores[cat] = score
+    if "actor_type_scores" in overrides:
+        for at, score in overrides["actor_type_scores"].items():
+            pipeline.config.scoring.actor_type_scores[at] = score
+
+    # Apply circuit breaker overrides
+    cb = template.get("circuit_breaker", {})
+    if cb:
+        pipeline.config.circuit_breaker.max_destructive_per_minute = cb.get(
+            "max_per_minute", pipeline.config.circuit_breaker.max_destructive_per_minute)
+        pipeline.config.circuit_breaker.max_destructive_per_hour = cb.get(
+            "max_per_hour", pipeline.config.circuit_breaker.max_destructive_per_hour)
+        pipeline.config.circuit_breaker.cooldown_seconds = cb.get(
+            "cooldown", pipeline.config.circuit_breaker.cooldown_seconds)
+
+    logger.info("Applied industry template: %s", industry.value)
+
+    return {
+        "industry": industry.value,
+        "scoring_overrides_applied": len(overrides),
+        "recommended_adapters": template.get("recommended_adapters", []),
+        "compliance_frameworks": template.get("compliance_frameworks", []),
+        "circuit_breaker": cb,
+    }
+
+
 @app.get("/v1/system/status")
 def system_status() -> dict:
     """
