@@ -27,24 +27,210 @@
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-[data-theme="light"] {
-  --shadow-ambient: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-direct: 0 4px 12px rgba(0, 0, 0, 0.06);
-}
+/* ── Light Theme — Enterprise Dashboard ────────────────────────────── */
+/* Designed as a dedicated palette, not a dark mode inversion.         */
+/* Layered surfaces, proper elevation, semantic status colors.        */
 
 [data-theme="light"] {
-  --bg: #f6f8fa;
-  --surface: #ffffff;
-  --surface-hover: #f3f4f6;
-  --border: #d0d7de;
-  --text: #1f2328;
-  --text-muted: #656d76;
-  --accent: #0969da;
-  --green: #1a7f37;
-  --yellow: #9a6700;
-  --orange: #bc4c00;
-  --red: #cf222e;
-  --purple: #8250df;
+  /* Layered surface system */
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-hover: #F1F5F9;
+  --surface-secondary: #F1F5F9;
+  --border: #E5E7EB;
+
+  /* Text hierarchy */
+  --text: #111827;
+  --text-muted: #6B7280;
+
+  /* Brand and semantic colors — higher contrast for light backgrounds */
+  --accent: #2563EB;
+  --green: #16A34A;
+  --yellow: #CA8A04;
+  --orange: #EA580C;
+  --red: #DC2626;
+  --purple: #7C3AED;
+  --cyan: #0891B2;
+
+  /* Glows — softer for light mode */
+  --glow-red: rgba(220, 38, 38, 0.12);
+  --glow-orange: rgba(234, 88, 12, 0.10);
+  --glow-yellow: rgba(202, 138, 4, 0.08);
+  --glow-green: rgba(22, 163, 74, 0.08);
+
+  /* Elevation — visible but subtle */
+  --shadow-ambient: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-direct: 0 4px 12px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+/* Sidebar — slightly darker than page for visual structure */
+[data-theme="light"] .sidebar {
+  background: #F1F5F9;
+  border-right-color: #E2E8F0;
+}
+
+[data-theme="light"] .sidebar-nav li a.active {
+  background: #E2E8F0;
+}
+
+[data-theme="light"] .sidebar-footer {
+  border-top-color: #E2E8F0;
+}
+
+/* Cards — elevated with visible borders */
+[data-theme="light"] .card {
+  border-color: #E5E7EB;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* Stat cards — subtle background distinction */
+[data-theme="light"] .stat-card {
+  background: #FFFFFF;
+  border-color: #E5E7EB;
+}
+
+/* Action items — semantic status backgrounds */
+[data-theme="light"] .action-item.critical {
+  background: #FEF2F2;
+  border-left-color: #EF4444;
+}
+
+[data-theme="light"] .action-item.critical .action-icon {
+  background: #FEE2E2;
+}
+
+[data-theme="light"] .action-item.warning {
+  background: #FFFBEB;
+  border-left-color: #F59E0B;
+}
+
+[data-theme="light"] .action-item.warning .action-icon {
+  background: #FEF3C7;
+}
+
+/* Decision cards — semantic glow in light mode */
+[data-theme="light"] .decision-card.critical {
+  animation: fadeIn 0.2s ease, pulse-red-light 3s ease-in-out infinite;
+}
+
+[data-theme="light"] .decision-card.high-risk {
+  animation: fadeIn 0.2s ease, pulse-orange-light 4s ease-in-out infinite;
+}
+
+@keyframes pulse-red-light {
+  0%, 100% { box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  50% { box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15), 0 2px 8px rgba(220, 38, 38, 0.1); }
+}
+
+@keyframes pulse-orange-light {
+  0%, 100% { box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  50% { box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.12), 0 2px 8px rgba(234, 88, 12, 0.08); }
+}
+
+/* Badges — proper semantic backgrounds for light mode */
+[data-theme="light"] .badge-block { background: #FEE2E2; color: #991B1B; }
+[data-theme="light"] .badge-require_review { background: #FEF3C7; color: #92400E; }
+[data-theme="light"] .badge-allow_with_logging { background: #DBEAFE; color: #1E3A8A; }
+[data-theme="light"] .badge-allow { background: #DCFCE7; color: #14532D; }
+[data-theme="light"] .badge-critical { background: #FEE2E2; color: #991B1B; }
+[data-theme="light"] .badge-high { background: #FFEDD5; color: #9A3412; }
+[data-theme="light"] .badge-medium { background: #FEF3C7; color: #92400E; }
+[data-theme="light"] .badge-low { background: #DCFCE7; color: #14532D; }
+
+/* Insight cards */
+[data-theme="light"] .insight-card {
+  border-color: #E5E7EB;
+}
+
+[data-theme="light"] .insight-card .insight-narrative strong {
+  color: #111827;
+}
+
+/* System tabs */
+[data-theme="light"] .system-tabs {
+  background: #F1F5F9;
+}
+
+[data-theme="light"] .system-tab.active {
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* Inputs */
+[data-theme="light"] input,
+[data-theme="light"] select {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+}
+
+/* Error state */
+[data-theme="light"] .error {
+  background: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FECACA;
+}
+
+/* Graph container */
+[data-theme="light"] .graph-container {
+  background: #FFFFFF;
+  border-color: #E5E7EB;
+}
+
+/* Skeleton shimmer — lighter */
+[data-theme="light"] .skeleton {
+  background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+  background-size: 200% 100%;
+}
+
+/* Risk pulse container */
+[data-theme="light"] .risk-pulse-container {
+  background: #F1F5F9;
+}
+
+/* Peer bar */
+[data-theme="light"] .peer-bar {
+  background: #E5E7EB;
+}
+
+[data-theme="light"] .peer-bar .peer-range {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+/* Tables */
+[data-theme="light"] .table th {
+  color: #374151;
+  border-bottom-color: #E5E7EB;
+}
+
+[data-theme="light"] .table td {
+  border-bottom-color: #F3F4F6;
+}
+
+[data-theme="light"] .table tr:hover td {
+  background: #F9FAFB;
+}
+
+/* Theme toggle */
+[data-theme="light"] .theme-toggle {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #374151;
+}
+
+/* Expansion panel */
+[data-theme="light"] .expansion-panel {
+  background: #F8FAFC;
+}
+
+/* Logo breathe — no text-shadow glow in light mode */
+[data-theme="light"] .logo-icon {
+  animation: logo-breathe-light 4s ease-in-out infinite;
+}
+
+@keyframes logo-breathe-light {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
