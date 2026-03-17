@@ -1,5 +1,5 @@
 import { useApi } from '../hooks/useApi'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 
 const COLORS = {
   confirmed_correct: '#3fb950',

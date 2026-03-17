@@ -23,7 +23,6 @@ function ScoreBar({ label, satisfied, total }) {
 export default function Compliance() {
   const [window, setWindow] = useState(720)
   const { data: report, loading, refetch } = useApi(`/v1/compliance/report?window_hours=${window}`)
-  const { data: frameworks } = useApi('/v1/compliance/frameworks')
 
   return (
     <div>

@@ -68,6 +68,7 @@ POLICIES_DIR = Path(os.getenv("GUARDIAN_POLICIES_DIR", str(_ROOT / "policies")))
 AUDIT_LOG = Path(os.getenv("GUARDIAN_AUDIT_LOG", str(_ROOT / "audit.jsonl")))
 API_KEY = os.getenv("GUARDIAN_API_KEY", "")  # empty = no auth (dev mode)
 SHADOW_MODE = os.getenv("GUARDIAN_SHADOW_MODE", "false").lower() == "true"
+APP_VERSION = "0.3.0"
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ app = FastAPI(
         "circuit breaker, threat intelligence, event replay simulator. "
         "No LLMs in the decision path — deterministic, auditable math only."
     ),
-    version="0.3.0",
+    version=APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -1348,6 +1349,74 @@ def compliance_frameworks() -> list[dict]:
     ]
 
 
+_CONNECTED_ADAPTERS = [
+    {"name": "Terraform Cloud", "adapter": "terraform", "patterns": ("terraform",)},
+    {"name": "Kubernetes", "adapter": "kubernetes", "patterns": ("kubernetes", "k8s")},
+    {"name": "Microsoft Intune", "adapter": "intune", "patterns": ("intune",)},
+    {"name": "Entra ID", "adapter": "entra_id", "patterns": ("entra", "azure-ad", "okta")},
+    {"name": "Jamf Pro", "adapter": "jamf", "patterns": ("jamf",)},
+    {"name": "GitHub Actions", "adapter": "github", "patterns": ("github", "gitlab", "jenkins", "circleci")},
+    {"name": "AWS", "adapter": "aws_eventbridge", "patterns": ("aws", "cloudtrail")},
+    {"name": "MCP (Agent Tools)", "adapter": "mcp", "patterns": ("mcp",)},
+    {"name": "A2A (Agent Network)", "adapter": "a2a", "patterns": ("a2a",)},
+]
+
+
+def _scan_audit_log(pipeline: GuardianPipeline) -> list[dict]:
+    """Load audit entries once for dashboard/system-summary endpoints."""
+    entries: list[dict] = []
+    try:
+        if pipeline.audit_logger.log_path.exists():
+            with open(pipeline.audit_logger.log_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except Exception:
+        pass
+    return entries
+
+
+def _build_connected_systems(entries: list[dict]) -> list[dict]:
+    """Summarize connected-system activity from audit entries."""
+    system_events: dict[str, dict[str, str | int]] = {}
+
+    for entry in entries:
+        req = entry.get("action_request", {})
+        system = req.get("target_system", "unknown")
+        ts = entry.get("evaluated_at", "")
+        if system not in system_events:
+            system_events[system] = {"count": 0, "last_event": ""}
+        system_events[system]["count"] += 1
+        if ts > system_events[system]["last_event"]:
+            system_events[system]["last_event"] = ts
+
+    results = []
+    for adapter in _CONNECTED_ADAPTERS:
+        event_count = 0
+        last_event = ""
+        for sys_name, data in system_events.items():
+            sys_lower = sys_name.lower()
+            if any(pattern in sys_lower for pattern in adapter["patterns"]):
+                event_count += int(data["count"])
+                if data["last_event"] > last_event:
+                    last_event = str(data["last_event"])
+
+        results.append({
+            "name": adapter["name"],
+            "adapter": adapter["adapter"],
+            "status": "active" if event_count > 0 else "standby",
+            "event_count": event_count,
+            "last_event": last_event,
+        })
+
+    return results
+
+
 @app.get("/v1/system/status")
 def system_status() -> dict:
     """
@@ -1361,26 +1430,22 @@ def system_status() -> dict:
     snap = metrics.snapshot()
     counters = snap.get("counters", {})
     histograms = snap.get("histograms", {})
+    entries = _scan_audit_log(pipeline)
 
     # Count active actors from recent decisions
     active_actors = set()
-    total_ingested = 0
-    try:
-        import json as _json
-        if pipeline.audit_logger.log_path.exists():
-            with open(pipeline.audit_logger.log_path) as f:
-                for line in f:
-                    if line.strip():
-                        total_ingested += 1
-                        try:
-                            entry = _json.loads(line)
-                            actor = entry.get("action_request", {}).get("actor_name", "")
-                            if actor:
-                                active_actors.add(actor)
-                        except Exception:
-                            pass
-    except Exception:
-        pass
+    timestamps: list[datetime] = []
+    for entry in entries:
+        actor = entry.get("action_request", {}).get("actor_name", "")
+        if actor:
+            active_actors.add(actor)
+        ts = entry.get("evaluated_at")
+        if ts:
+            try:
+                timestamps.append(datetime.fromisoformat(ts))
+            except ValueError:
+                pass
+    total_ingested = len(entries)
 
     # Graph node count
     graph_nodes = 0
@@ -1394,14 +1459,28 @@ def system_status() -> dict:
 
     eval_count = counters.get("guardian.evaluations.total", 0)
     eval_duration = histograms.get("guardian.evaluations.duration_seconds", {})
+    connected_systems = _build_connected_systems(entries)
+
+    evaluations_per_minute = 0.0
+    if len(timestamps) >= 2:
+        span_minutes = max(
+            1.0 / 60.0,
+            (max(timestamps) - min(timestamps)).total_seconds() / 60.0,
+        )
+        evaluations_per_minute = round(total_ingested / span_minutes, 1)
+    elif total_ingested == 1:
+        evaluations_per_minute = 1.0
+
+    connected_system_count = len([s for s in connected_systems if s.get("status") == "active"])
 
     return {
         "events_ingested": total_ingested,
         "evaluations_total": eval_count,
-        "evaluations_per_minute": round(eval_count / max(1, total_ingested) * 60, 1) if total_ingested else 0,
+        "evaluations_per_minute": evaluations_per_minute,
         "active_actors": len(active_actors),
-        "connected_systems": 9,  # adapters registered
+        "connected_systems": connected_system_count,
         "graph_nodes": graph_nodes,
+        "graph_nodes_tracked": graph_nodes,
         "avg_latency_ms": round(eval_duration.get("p50", 0) * 1000, 1) if eval_duration else 0,
         "p95_latency_ms": round(eval_duration.get("p95", 0) * 1000, 1) if eval_duration else 0,
     }
@@ -1416,66 +1495,8 @@ def connected_systems() -> list[dict]:
     and last event timestamp. Scans the audit log to determine which
     systems have received events.
     """
-    import json as _json
     pipeline = get_pipeline()
-
-    # Count events per system from audit log
-    system_events: dict[str, dict] = {}
-    try:
-        if pipeline.audit_logger.log_path.exists():
-            with open(pipeline.audit_logger.log_path) as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        entry = _json.loads(line)
-                        req = entry.get("action_request", {})
-                        system = req.get("target_system", "unknown")
-                        ts = entry.get("evaluated_at", "")
-                        if system not in system_events:
-                            system_events[system] = {"count": 0, "last_event": ""}
-                        system_events[system]["count"] += 1
-                        if ts > system_events[system]["last_event"]:
-                            system_events[system]["last_event"] = ts
-                    except Exception:
-                        pass
-    except Exception:
-        pass
-
-    # Build connected systems list
-    adapters = [
-        {"name": "Terraform Cloud", "adapter": "terraform", "pattern": "terraform"},
-        {"name": "Kubernetes", "adapter": "kubernetes", "pattern": "k8s"},
-        {"name": "Microsoft Intune", "adapter": "intune", "pattern": "intune"},
-        {"name": "Entra ID", "adapter": "entra_id", "pattern": "entra"},
-        {"name": "Jamf Pro", "adapter": "jamf", "pattern": "jamf"},
-        {"name": "GitHub Actions", "adapter": "github", "pattern": "github"},
-        {"name": "AWS", "adapter": "aws_eventbridge", "pattern": "aws-"},
-        {"name": "MCP (Agent Tools)", "adapter": "mcp", "pattern": "mcp"},
-        {"name": "A2A (Agent Network)", "adapter": "a2a", "pattern": "a2a"},
-    ]
-
-    results = []
-    for adapter in adapters:
-        # Find matching systems
-        event_count = 0
-        last_event = ""
-        for sys_name, data in system_events.items():
-            if adapter["pattern"] in sys_name.lower():
-                event_count += data["count"]
-                if data["last_event"] > last_event:
-                    last_event = data["last_event"]
-
-        status = "active" if event_count > 0 else "standby"
-        results.append({
-            "name": adapter["name"],
-            "adapter": adapter["adapter"],
-            "status": status,
-            "event_count": event_count,
-            "last_event": last_event,
-        })
-
-    return results
+    return _build_connected_systems(_scan_audit_log(pipeline))
 
 
 @app.get("/v1/health", response_model=HealthResponse)
@@ -1520,7 +1541,7 @@ def health() -> HealthResponse:
 
     return HealthResponse(
         status=overall,
-        version="0.2.0",
+        version=APP_VERSION,
         shadow_mode=SHADOW_MODE,
         components=components,
     )

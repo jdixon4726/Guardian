@@ -430,7 +430,7 @@ export default function DecisionCard({ entry, severity, isExpanded, onToggle, on
                   onClick={() => sendFeedback('false_positive')}>False Positive</button>
                 <button className="secondary" style={{ fontSize: 11, padding: '3px 10px', borderColor: 'var(--orange)', color: 'var(--orange)' }}
                   onClick={() => sendFeedback('false_negative')}>False Negative</button>
-                <button className="secondary" style={{ fontSize: 11, padding: '3px 10px', borderColor: 'var(--purple)', color: 'var(--purple)' }}
+                <button className="secondary" style={{ fontSize: 11, padding: '3px 10px', borderColor: 'var(--accent)', color: 'var(--accent)' }}
                   onClick={() => sendFeedback('known_pattern')}>Known Pattern</button>
               </>
             )}

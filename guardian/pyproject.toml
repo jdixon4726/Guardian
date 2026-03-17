@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardian"
-version = "0.1.0"
+version = "0.3.0"
 description = "An action governance engine for automated and AI-driven operational systems"
 requires-python = ">=3.12"
 dependencies = [
