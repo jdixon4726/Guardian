@@ -103,7 +103,7 @@ class RiskOverlay(BaseModel):
 class FeedSyncResult(BaseModel):
     """Result of syncing a threat feed."""
     source: ThreatFeedSource
-    success: bool
+    success: bool = False
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     entries_processed: int = 0
     overlays_created: int = 0
