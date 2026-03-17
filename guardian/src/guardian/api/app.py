@@ -764,6 +764,165 @@ def dashboard() -> FileResponse:
     return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
+# ── Demo Data Ingestion ──────────────────────────────────────────────────────
+
+@app.post("/v1/ingest/demo")
+async def ingest_demo(request: Request) -> dict:
+    """
+    Ingest demo scenario data through the live pipeline.
+
+    Populates the dashboard with realistic decisions, actor profiles,
+    risk scores, and graph data. Call once after deployment.
+
+    Optional query param: ?scenario=stryker (defaults to all scenarios)
+    """
+    import json as _json
+    from guardian.simulator.models import AdapterType, Scenario, ScenarioEvent
+    from guardian.adapters.intune.mapper import IntuneActionMapper
+    from guardian.adapters.intune.models import IntuneDeviceAction
+    from guardian.adapters.entra_id.mapper import EntraAdminMapper
+    from guardian.adapters.entra_id.models import EntraAdminAction
+    from guardian.adapters.jamf.mapper import JamfCommandMapper
+    from guardian.adapters.jamf.models import JamfDeviceCommand
+    from guardian.adapters.github_actions.mapper import GitHubDeploymentMapper
+    from guardian.adapters.github_actions.models import GitHubDeploymentRequest
+    from guardian.adapters.aws_eventbridge.mapper import CloudTrailMapper
+    from guardian.adapters.aws_eventbridge.models import CloudTrailEvent
+    from guardian.adapters.mcp.mapper import MCPToolCallMapper
+    from guardian.adapters.mcp.models import MCPToolCall
+
+    pipeline = get_pipeline()
+
+    # Find scenario files
+    scenarios_dirs = [
+        _ROOT / "scenarios",
+        _ROOT / "simulator" / "scenarios",
+    ]
+
+    scenario_filter = request.query_params.get("scenario", "")
+
+    mappers = {
+        "intune": IntuneActionMapper(),
+        "entra_id": EntraAdminMapper(),
+        "jamf": JamfCommandMapper(),
+        "github": GitHubDeploymentMapper(),
+        "aws": CloudTrailMapper(),
+        "mcp": MCPToolCallMapper(),
+    }
+
+    total_events = 0
+    total_allowed = 0
+    total_blocked = 0
+    total_review = 0
+    scenarios_run = []
+
+    for d in scenarios_dirs:
+        if not d.exists():
+            continue
+        for f in sorted(d.glob("*.json")):
+            if scenario_filter and scenario_filter not in f.stem:
+                continue
+
+            with open(f) as fh:
+                data = _json.load(fh)
+
+            scenario = Scenario(**data)
+            scenarios_run.append(scenario.metadata.name)
+
+            # Register scenario actors
+            if scenario.metadata.register_actors:
+                for actor in scenario.metadata.register_actors:
+                    pipeline.attestor.registry._actors[actor["name"]] = actor
+
+            for event in scenario.events:
+                try:
+                    action_req = _map_demo_event(event, mappers)
+                    if action_req is None:
+                        continue
+
+                    decision = pipeline.evaluate(action_req)
+                    total_events += 1
+
+                    if decision.decision.value == "block":
+                        total_blocked += 1
+                    elif decision.decision.value == "require_review":
+                        total_review += 1
+                    else:
+                        total_allowed += 1
+
+                except Exception as exc:
+                    logger.debug("Demo ingest skip: %s — %s", event.id, exc)
+
+    return {
+        "status": "demo data ingested",
+        "scenarios_run": scenarios_run,
+        "total_events": total_events,
+        "allowed": total_allowed,
+        "blocked": total_blocked,
+        "require_review": total_review,
+    }
+
+
+def _map_demo_event(event, mappers) -> ActionRequest | None:
+    """Map a scenario event to an ActionRequest for the live pipeline."""
+    from guardian.simulator.models import AdapterType
+    from guardian.adapters.intune.models import IntuneDeviceAction
+    from guardian.adapters.entra_id.models import EntraAdminAction
+    from guardian.adapters.jamf.models import JamfDeviceCommand
+    from guardian.adapters.github_actions.models import GitHubDeploymentRequest
+    from guardian.adapters.aws_eventbridge.models import CloudTrailEvent
+    from guardian.adapters.mcp.models import MCPToolCall
+
+    payload = event.payload
+    ts = event.timestamp
+
+    if event.adapter == AdapterType.direct:
+        if ts and "timestamp" not in payload:
+            payload["timestamp"] = ts
+        if "timestamp" not in payload:
+            from datetime import datetime, timezone
+            payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+        return ActionRequest(**payload)
+
+    elif event.adapter == AdapterType.intune:
+        device = IntuneDeviceAction(**{k: v for k, v in payload.items() if k != "actor_name"})
+        actor = payload.get("actor_name", "unknown-intune-actor")
+        req = mappers["intune"].map_action(device, actor_name=actor)
+        if ts:
+            req = ActionRequest(**{**req.model_dump(), "timestamp": ts})
+        return req
+
+    elif event.adapter == AdapterType.entra_id:
+        action = EntraAdminAction(**{k: v for k, v in payload.items() if k != "actor_name"})
+        actor = payload.get("actor_name", "unknown-entra-actor")
+        req = mappers["entra_id"].map_action(action, actor_name=actor)
+        if ts:
+            req = ActionRequest(**{**req.model_dump(), "timestamp": ts})
+        return req
+
+    elif event.adapter == AdapterType.jamf:
+        cmd = JamfDeviceCommand(**{k: v for k, v in payload.items() if k != "actor_name"})
+        actor = payload.get("actor_name", "unknown-jamf-admin")
+        req = mappers["jamf"].map_command(cmd, actor_name=actor)
+        if ts:
+            req = ActionRequest(**{**req.model_dump(), "timestamp": ts})
+        return req
+
+    elif event.adapter == AdapterType.github:
+        deployment = GitHubDeploymentRequest(**payload)
+        req = mappers["github"].map_deployment(deployment)
+        if ts:
+            req = ActionRequest(**{**req.model_dump(), "timestamp": ts})
+        return req
+
+    elif event.adapter == AdapterType.aws:
+        ct_event = CloudTrailEvent(**payload)
+        req = mappers["aws"].map_event(ct_event)
+        return req
+
+    return None
+
+
 @app.get("/metrics")
 def prometheus_metrics() -> Response:
     """Prometheus-compatible metrics endpoint."""
