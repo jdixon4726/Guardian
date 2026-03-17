@@ -26,6 +26,7 @@ class ScoringConfig(BaseModel):
         "destructive": [
             "delete_resource", "destroy_infrastructure", "drop_database",
             "wipe_storage", "terminate_instances", "delete_vpc",
+            "wipe_device", "retire_device", "delete_device",
         ],
         "security_control": [
             "disable_endpoint_protection", "disable_antivirus", "disable_edr",
@@ -117,6 +118,35 @@ class PolicyProviderConfig(BaseModel):
     opa_fallback: str = "block"    # "block" or "builtin"
 
 
+class CircuitBreakerConfig(BaseModel):
+    """Configuration for the per-actor circuit breaker."""
+
+    enabled: bool = True
+    max_destructive_per_minute: int = 5
+    max_destructive_per_hour: int = 20
+    cooldown_seconds: int = 300
+    destructive_actions: list[str] = Field(default_factory=lambda: [
+        "destroy_infrastructure", "delete_resource", "drop_database",
+        "wipe_storage", "terminate_instances", "delete_vpc",
+        "wipe_device", "retire_device", "delete_device",
+        "remote_wipe", "factory_reset",
+    ])
+
+
+class IntuneAdapterConfig(BaseModel):
+    """Configuration for the Intune proxy adapter."""
+
+    enabled: bool = False
+    graph_api_base: str = "https://graph.microsoft.com/v1.0"
+    timeout_seconds: float = 30.0
+    intercepted_actions: list[str] = Field(default_factory=lambda: [
+        "wipe", "retire", "delete", "resetPasscode",
+    ])
+    passthrough_actions: list[str] = Field(default_factory=lambda: [
+        "syncDevice", "rebootNow",
+    ])
+
+
 class GuardianConfig(BaseModel):
     """Master configuration for the Guardian engine."""
 
@@ -125,3 +155,5 @@ class GuardianConfig(BaseModel):
     drift: DriftConfig = Field(default_factory=DriftConfig)
     decision: DecisionConfig = Field(default_factory=DecisionConfig)
     policy: PolicyProviderConfig = Field(default_factory=PolicyProviderConfig)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
+    intune: IntuneAdapterConfig = Field(default_factory=IntuneAdapterConfig)

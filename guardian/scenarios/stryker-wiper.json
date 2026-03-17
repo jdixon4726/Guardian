@@ -1,0 +1,235 @@
+{
+  "metadata": {
+    "name": "Stryker Wiper Attack (March 2026)",
+    "description": "Simulates the Handala/Stryker attack: compromised Intune Global Admin wipes 80,000 devices in 3 hours. Tests identity attestation, circuit breaker, and behavioral drift detection.",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["nation-state", "wiper", "intune", "mdm", "stryker", "iran"],
+    "circuit_breaker_enabled": true,
+    "circuit_breaker_max_per_minute": 5,
+    "circuit_breaker_max_per_hour": 20,
+    "register_actors": [
+      {
+        "name": "intune-stryker-legit-admin@stryker.com",
+        "type": "human",
+        "max_privilege_level": "admin",
+        "status": "active"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-01",
+      "timestamp": "2026-03-04T14:00:00Z",
+      "adapter": "intune",
+      "phase": "baseline",
+      "description": "Legit admin syncs device (normal activity)",
+      "payload": {
+        "device_id": "baseline-dev-001",
+        "action": "syncDevice",
+        "device_name": "CORP-LAPTOP-001",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      }
+    },
+    {
+      "id": "baseline-02",
+      "timestamp": "2026-03-05T10:30:00Z",
+      "adapter": "intune",
+      "phase": "baseline",
+      "description": "Legit admin syncs another device",
+      "payload": {
+        "device_id": "baseline-dev-002",
+        "action": "syncDevice",
+        "device_name": "CORP-LAPTOP-002",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      }
+    },
+    {
+      "id": "baseline-03",
+      "timestamp": "2026-03-06T09:15:00Z",
+      "adapter": "intune",
+      "phase": "baseline",
+      "description": "Legit admin wipes one lost device (rare but normal)",
+      "payload": {
+        "device_id": "lost-phone-001",
+        "action": "wipe",
+        "device_name": "CEO-IPHONE-LOST",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      },
+      "expect_risk_min": 0.4
+    },
+    {
+      "id": "recon-01",
+      "timestamp": "2026-03-11T04:30:00Z",
+      "adapter": "entra_id",
+      "phase": "reconnaissance",
+      "description": "Attacker (rogue account) creates Global Admin in Entra ID",
+      "payload": {
+        "action": "assign_role",
+        "target_type": "user",
+        "target_id": "attacker-oid-001",
+        "target_display_name": "IT-Operations-Admin",
+        "role_display_name": "Global Administrator",
+        "actor_name": "intune-stryker-rogue-admin@stryker.com"
+      },
+      "expect_decision": "block",
+      "expect_risk_min": 1.0
+    },
+    {
+      "id": "attack-wipe-001",
+      "timestamp": "2026-03-11T05:00:00Z",
+      "adapter": "intune",
+      "phase": "mass_wipe",
+      "description": "Attacker wipes device 1 (unknown actor)",
+      "payload": {
+        "device_id": "stryker-device-000001",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-000001",
+        "operating_system": "Windows",
+        "actor_name": "intune-stryker-rogue-admin@stryker.com"
+      },
+      "expect_decision": "block",
+      "expect_risk_min": 1.0
+    },
+    {
+      "id": "attack-wipe-002",
+      "timestamp": "2026-03-11T05:00:01Z",
+      "adapter": "intune",
+      "phase": "mass_wipe",
+      "description": "Attacker wipes device 2",
+      "payload": {
+        "device_id": "stryker-device-000002",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-000002",
+        "operating_system": "Windows",
+        "actor_name": "intune-stryker-rogue-admin@stryker.com"
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-wipe-003",
+      "timestamp": "2026-03-11T05:00:02Z",
+      "adapter": "intune",
+      "phase": "mass_wipe",
+      "description": "Attacker wipes device 3",
+      "payload": {
+        "device_id": "stryker-device-000003",
+        "action": "wipe",
+        "device_name": "STRYKER-PHONE-000003",
+        "operating_system": "iOS",
+        "actor_name": "intune-stryker-rogue-admin@stryker.com"
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-compromised-known-001",
+      "timestamp": "2026-03-11T05:01:00Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker uses compromised KNOWN admin — wipe 1",
+      "payload": {
+        "device_id": "stryker-device-010001",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010001",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      },
+      "expect_risk_min": 0.4
+    },
+    {
+      "id": "attack-compromised-known-002",
+      "timestamp": "2026-03-11T05:01:01Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker uses compromised KNOWN admin — wipe 2",
+      "payload": {
+        "device_id": "stryker-device-010002",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010002",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      }
+    },
+    {
+      "id": "attack-compromised-known-003",
+      "timestamp": "2026-03-11T05:01:02Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker uses compromised KNOWN admin — wipe 3",
+      "payload": {
+        "device_id": "stryker-device-010003",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010003",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      }
+    },
+    {
+      "id": "attack-compromised-known-004",
+      "timestamp": "2026-03-11T05:01:03Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker uses compromised KNOWN admin — wipe 4",
+      "payload": {
+        "device_id": "stryker-device-010004",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010004",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      }
+    },
+    {
+      "id": "attack-compromised-known-005",
+      "timestamp": "2026-03-11T05:01:04Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker uses compromised KNOWN admin — wipe 5 (CB should trip soon)",
+      "payload": {
+        "device_id": "stryker-device-010005",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010005",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      }
+    },
+    {
+      "id": "attack-compromised-known-006",
+      "timestamp": "2026-03-11T05:01:05Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker wipe 6 — circuit breaker TRIPS",
+      "payload": {
+        "device_id": "stryker-device-010006",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010006",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      },
+      "expect_circuit_breaker": true,
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-compromised-known-050",
+      "timestamp": "2026-03-11T05:01:30Z",
+      "adapter": "intune",
+      "phase": "compromised_known_account",
+      "description": "Attacker wipe 50 — still blocked by CB",
+      "payload": {
+        "device_id": "stryker-device-010050",
+        "action": "wipe",
+        "device_name": "STRYKER-LAPTOP-010050",
+        "actor_name": "intune-stryker-legit-admin@stryker.com"
+      },
+      "expect_decision": "block",
+      "expect_circuit_breaker": true
+    },
+    {
+      "id": "unaffected-admin-01",
+      "timestamp": "2026-03-11T05:05:00Z",
+      "adapter": "intune",
+      "phase": "other_admins",
+      "description": "Different admin syncs device — NOT affected by CB",
+      "payload": {
+        "device_id": "bob-device-001",
+        "action": "syncDevice",
+        "device_name": "BOB-WORKSTATION",
+        "actor_name": "bob.okafor"
+      },
+      "expect_risk_max": 0.8
+    }
+  ]
+}

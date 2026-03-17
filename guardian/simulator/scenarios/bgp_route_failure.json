@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "name": "BGP Route Hijack — Cloudflare 1.1.1.1 (June 2024)",
+    "description": "Reconstructs the Cloudflare 1.1.1.1 BGP hijack. AS267613 announces unauthorized /32 route, Tier-1 provider accepts as blackhole, route leak propagates across 300+ networks in 70 countries. Mapped to network infrastructure policy changes Guardian would evaluate.",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["bgp", "network", "dns", "route-hijack", "cloudflare", "infrastructure"],
+    "circuit_breaker_enabled": true,
+    "register_actors": [
+      {"name": "netops-cloudflare-bot", "type": "automation", "max_privilege_level": "elevated", "status": "active"},
+      {"name": "netops-admin-oncall", "type": "human", "max_privilege_level": "admin", "status": "active"}
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-route-01", "timestamp": "2024-06-20T12:00:00Z", "adapter": "direct",
+      "phase": "baseline", "description": "Normal BGP announcement update — routine prefix change",
+      "payload": {"actor_name": "netops-cloudflare-bot", "actor_type": "automation", "requested_action": "change_configuration", "target_system": "bgp-routing", "target_asset": "cloudflare/1.1.1.0-24/AS13335", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Routine BGP prefix update for 1.1.1.0/24. Origin AS13335. RPKI valid."}
+    },
+    {
+      "id": "hijack-unauthorized-announce", "timestamp": "2024-06-27T18:51:00Z", "adapter": "direct",
+      "phase": "hijack", "description": "AS267613 announces unauthorized 1.1.1.1/32 — more specific than Cloudflare's /24",
+      "payload": {"actor_name": "unknown-as267613-eletronet", "actor_type": "automation", "requested_action": "modify_firewall_rule", "target_system": "bgp-routing", "target_asset": "1.1.1.1/32/AS267613", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Unauthorized BGP announcement: 1.1.1.1/32 from AS267613 (Eletronet, Brazil). RPKI INVALID — ROA specifies AS13335 max /24. Longest-prefix-match causes global traffic redirection."},
+      "expect_decision": "block", "expect_risk_min": 0.5
+    },
+    {
+      "id": "hijack-blackhole-accept", "timestamp": "2024-06-27T18:51:30Z", "adapter": "direct",
+      "phase": "hijack", "description": "Tier-1 provider accepts /32 as RTBH blackhole route — traffic dropped",
+      "payload": {"actor_name": "unknown-as267613-eletronet", "actor_type": "automation", "requested_action": "disable_firewall", "target_system": "bgp-routing", "target_asset": "tier1-provider/rtbh/1.1.1.1-32", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Tier-1 accepts RPKI-invalid route as RTBH blackhole via AS-SET matching. All traffic to 1.1.1.1 silently dropped."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "leak-propagation", "timestamp": "2024-06-27T18:52:00Z", "adapter": "direct",
+      "phase": "propagation", "description": "Route leak: AS262504 leaks 1.1.1.0/24 upstream to IX — 300 networks affected",
+      "payload": {"actor_name": "unknown-as267613-eletronet", "actor_type": "automation", "requested_action": "modify_firewall_rule", "target_system": "bgp-routing", "target_asset": "ix-peer1/1.1.1.0-24/AS-path-1031-262504-267613-13335", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Route leak: customer prefix 1.1.1.0/24 re-announced to provider AS1031. Propagated to 300+ networks across 70 countries. 50-400ms latency increase."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "detection-bmp", "timestamp": "2024-06-27T20:03:00Z", "adapter": "direct",
+      "phase": "detection", "description": "Cloudflare BMP monitoring detects rogue /32 on route servers",
+      "payload": {"actor_name": "netops-cloudflare-bot", "actor_type": "automation", "requested_action": "change_configuration", "target_system": "monitoring", "target_asset": "bmp-collector/rogue-route-alert", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "Internal BMP detection: rogue 1.1.1.1/32 seen on route servers. RPKI invalid. DFZ invalid. Auto-rejected by Cloudflare routers."}
+    },
+    {
+      "id": "mitigation-disable-peering-01", "timestamp": "2024-06-27T20:08:00Z", "adapter": "direct",
+      "phase": "mitigation", "description": "Cloudflare disables peering with AS267613 — first mitigation",
+      "payload": {"actor_name": "netops-admin-oncall", "actor_type": "human", "requested_action": "modify_firewall_rule", "target_system": "bgp-peering", "target_asset": "peering/AS267613/session-1", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Incident response: disable BGP peering session with AS267613 (Eletronet). Immediate mitigation for hijack."}
+    },
+    {
+      "id": "mitigation-disable-peering-02", "timestamp": "2024-06-27T21:56:00Z", "adapter": "direct",
+      "phase": "mitigation", "description": "Cloudflare disables second peering point",
+      "payload": {"actor_name": "netops-admin-oncall", "actor_type": "human", "requested_action": "modify_firewall_rule", "target_system": "bgp-peering", "target_asset": "peering/AS267613/session-2", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Disable second BGP peering with AS267613 for non-Brazilian traffic."}
+    },
+    {
+      "id": "resolution", "timestamp": "2024-06-28T02:28:00Z", "adapter": "direct",
+      "phase": "resolution", "description": "Route leak fully resolved — AS262504 ceases unauthorized announcements",
+      "payload": {"actor_name": "netops-cloudflare-bot", "actor_type": "automation", "requested_action": "change_configuration", "target_system": "bgp-routing", "target_asset": "cloudflare/1.1.1.0-24/restored", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "Full service recovery. All BGP monitoring returns to clean state. Total incident duration: ~7.5 hours."}
+    }
+  ]
+}

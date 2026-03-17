@@ -1,0 +1,124 @@
+{
+  "metadata": {
+    "name": "GitHub Actions Supply Chain Attack",
+    "description": "Simulates a supply chain attack via GitHub Actions: attacker compromises a maintainer PAT, modifies workflow files, and deploys malicious code to production. Based on the tj-actions/changed-files attack (March 2025).",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["supply-chain", "github", "ci-cd", "workflow-injection"],
+    "circuit_breaker_enabled": true,
+    "register_actors": [
+      {
+        "name": "github-deploy-bot",
+        "type": "automation",
+        "max_privilege_level": "elevated",
+        "status": "active"
+      },
+      {
+        "name": "github-alice-chen",
+        "type": "human",
+        "max_privilege_level": "elevated",
+        "status": "active"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-deploy-01",
+      "timestamp": "2026-03-01T10:00:00Z",
+      "adapter": "github",
+      "phase": "baseline",
+      "description": "Normal deployment to staging by deploy bot",
+      "payload": {
+        "action": "requested",
+        "environment": "staging",
+        "workflow_name": "deploy.yml",
+        "workflow_ref": "refs/heads/main",
+        "sender_login": "deploy-bot",
+        "sender_type": "Bot",
+        "repository_full_name": "acme-corp/backend",
+        "repository_visibility": "private",
+        "triggering_event": "push",
+        "head_branch": "main"
+      }
+    },
+    {
+      "id": "baseline-deploy-02",
+      "timestamp": "2026-03-01T14:00:00Z",
+      "adapter": "github",
+      "phase": "baseline",
+      "description": "Normal deployment to production by human (alice)",
+      "payload": {
+        "action": "requested",
+        "environment": "production",
+        "workflow_name": "deploy.yml",
+        "workflow_ref": "refs/heads/main",
+        "sender_login": "alice-chen",
+        "sender_type": "User",
+        "repository_full_name": "acme-corp/backend",
+        "repository_visibility": "private",
+        "triggering_event": "push",
+        "head_branch": "main"
+      }
+    },
+    {
+      "id": "attack-workflow-modify",
+      "timestamp": "2026-03-10T03:15:00Z",
+      "adapter": "github",
+      "phase": "workflow_injection",
+      "description": "Attacker (compromised PAT) deploys modified workflow to production at 3 AM",
+      "payload": {
+        "action": "requested",
+        "environment": "production",
+        "workflow_name": "deploy.yml",
+        "workflow_ref": "refs/heads/feature/update-deps",
+        "sender_login": "compromised-maintainer",
+        "sender_type": "User",
+        "repository_full_name": "acme-corp/backend",
+        "repository_visibility": "private",
+        "triggering_event": "workflow_dispatch",
+        "head_branch": "feature/update-deps"
+      },
+      "expect_decision": "block",
+      "expect_risk_min": 0.3
+    },
+    {
+      "id": "attack-public-repo-deploy",
+      "timestamp": "2026-03-10T03:20:00Z",
+      "adapter": "github",
+      "phase": "exfiltration",
+      "description": "Attacker deploys to production from a public repo fork",
+      "payload": {
+        "action": "requested",
+        "environment": "production",
+        "workflow_name": "deploy.yml",
+        "workflow_ref": "refs/heads/main",
+        "sender_login": "compromised-maintainer",
+        "sender_type": "User",
+        "repository_full_name": "attacker-fork/backend",
+        "repository_visibility": "public",
+        "triggering_event": "pull_request",
+        "head_branch": "main"
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "legit-deploy-after-attack",
+      "timestamp": "2026-03-10T09:00:00Z",
+      "adapter": "github",
+      "phase": "recovery",
+      "description": "Legitimate deploy after incident (alice deploys fix)",
+      "payload": {
+        "action": "requested",
+        "environment": "staging",
+        "workflow_name": "deploy.yml",
+        "workflow_ref": "refs/heads/main",
+        "sender_login": "alice-chen",
+        "sender_type": "User",
+        "repository_full_name": "acme-corp/backend",
+        "repository_visibility": "private",
+        "triggering_event": "push",
+        "head_branch": "main"
+      }
+    }
+  ]
+}

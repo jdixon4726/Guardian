@@ -1,0 +1,84 @@
+{
+  "metadata": {
+    "name": "Uber Identity Takeover — Lapsus$ MFA Fatigue (September 2022)",
+    "description": "Reconstructs the Lapsus$ attack on Uber. Attacker purchases contractor VPN creds, MFA-fatigues the victim into approving, then uses hardcoded PAM credentials to access AWS, GCP, Duo, Slack, HackerOne, and source code. Tests identity attestation, privilege escalation detection, and lateral movement patterns.",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["identity", "mfa-fatigue", "lapsus", "uber", "lateral-movement", "pam"],
+    "circuit_breaker_enabled": true,
+    "register_actors": [
+      {"name": "uber-ext-contractor-vpn", "type": "human", "max_privilege_level": "standard", "status": "active"},
+      {"name": "uber-pam-admin", "type": "human", "max_privilege_level": "admin", "status": "active"},
+      {"name": "uber-sre-oncall", "type": "human", "max_privilege_level": "elevated", "status": "active"}
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-contractor-01", "timestamp": "2022-09-01T10:00:00Z", "adapter": "direct",
+      "phase": "baseline", "description": "Contractor normal VPN access — standard privilege, daytime",
+      "payload": {"actor_name": "uber-ext-contractor-vpn", "actor_type": "human", "requested_action": "change_configuration", "target_system": "vpn-gateway", "target_asset": "corp-vpn/contractor-pool", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "Normal contractor VPN login during business hours"}
+    },
+    {
+      "id": "mfa-fatigue", "timestamp": "2022-09-15T01:00:00Z", "adapter": "direct",
+      "phase": "initial_access", "description": "Attacker triggers 30+ MFA push notifications — contractor approves under social engineering",
+      "payload": {"actor_name": "uber-ext-contractor-vpn", "actor_type": "human", "requested_action": "change_configuration", "target_system": "vpn-gateway", "target_asset": "corp-vpn/contractor-pool", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "VPN login at 1 AM from new IP 185.220.101.42. 30 prior MFA denials in past hour."}
+    },
+    {
+      "id": "network-scan", "timestamp": "2022-09-15T01:30:00Z", "adapter": "direct",
+      "phase": "reconnaissance", "description": "Attacker scans internal network shares, finds PowerShell scripts with hardcoded PAM creds",
+      "payload": {"actor_name": "uber-ext-contractor-vpn", "actor_type": "human", "requested_action": "export_data", "target_system": "corp-file-shares", "target_asset": "\\\\fileserver\\scripts\\deploy-creds.ps1", "privilege_level": "standard", "sensitivity_level": "restricted", "business_context": "Network share access from contractor account scanning multiple shares. PowerShell script contains plaintext Thycotic PAM admin credentials."},
+      "expect_risk_min": 0.4
+    },
+    {
+      "id": "pam-login", "timestamp": "2022-09-15T01:45:00Z", "adapter": "direct",
+      "phase": "privilege_escalation", "description": "Attacker logs into Thycotic PAM with hardcoded admin creds",
+      "payload": {"actor_name": "uber-pam-admin", "actor_type": "human", "requested_action": "escalate_privileges", "target_system": "thycotic-pam", "target_asset": "pam/admin-console", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "PAM admin login from contractor VPN IP range. First PAM access from this source."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "pam-secret-dump", "timestamp": "2022-09-15T01:50:00Z", "adapter": "direct",
+      "phase": "privilege_escalation", "description": "Attacker extracts all secrets from PAM vault — AWS, GCP, Duo, OneLogin creds",
+      "payload": {"actor_name": "uber-pam-admin", "actor_type": "human", "requested_action": "export_data", "target_system": "thycotic-pam", "target_asset": "pam/all-secrets", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Bulk secret retrieval from PAM. All folders accessed. 847 secrets exported."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "aws-console-access", "timestamp": "2022-09-15T02:00:00Z", "adapter": "aws",
+      "phase": "lateral_movement", "description": "Attacker accesses AWS console with stolen PAM credentials",
+      "payload": {"event_id": "uber-aws-001", "event_time": "2022-09-15T02:00:00Z", "event_source": "signin.amazonaws.com", "event_name": "ConsoleLogin", "aws_region": "us-west-2", "source_ip": "185.220.101.42", "user_identity_type": "IAMUser", "user_identity_username": "uber-pam-admin", "user_identity_account_id": "uber-aws-account", "request_parameters": {}}
+    },
+    {
+      "id": "gcp-access", "timestamp": "2022-09-15T02:05:00Z", "adapter": "direct",
+      "phase": "lateral_movement", "description": "Attacker accesses GCP/GSuite admin with PAM credentials",
+      "payload": {"actor_name": "uber-pam-admin", "actor_type": "human", "requested_action": "escalate_privileges", "target_system": "gcp-admin", "target_asset": "gsuite-admin-console", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "GCP admin console login from VPN. Simultaneous with AWS, Duo, OneLogin access."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "duo-admin-access", "timestamp": "2022-09-15T02:10:00Z", "adapter": "direct",
+      "phase": "lateral_movement", "description": "Attacker accesses Duo MFA admin panel — could disable MFA for entire org",
+      "payload": {"actor_name": "uber-pam-admin", "actor_type": "human", "requested_action": "modify_security_policy", "target_system": "duo-admin", "target_asset": "duo/admin-console", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Duo admin login. Could disable MFA org-wide. Accessed from same session as AWS/GCP."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "sentinelone-access", "timestamp": "2022-09-15T02:15:00Z", "adapter": "direct",
+      "phase": "lateral_movement", "description": "Attacker accesses SentinelOne EDR dashboard — could disable endpoint protection",
+      "payload": {"actor_name": "uber-pam-admin", "actor_type": "human", "requested_action": "disable_endpoint_protection", "target_system": "sentinelone-edr", "target_asset": "edr/management-console", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "SentinelOne admin access. Attacker could disable all endpoint detection."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "hackerone-access", "timestamp": "2022-09-15T02:20:00Z", "adapter": "direct",
+      "phase": "data_access", "description": "Attacker accesses HackerOne admin — downloads unpatched vulnerability reports",
+      "payload": {"actor_name": "uber-pam-admin", "actor_type": "human", "requested_action": "export_data", "target_system": "hackerone", "target_asset": "hackerone/uber-program/all-reports", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "HackerOne admin panel. Bulk download of vulnerability reports including unpatched bugs."},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "slack-announcement", "timestamp": "2022-09-15T02:30:00Z", "adapter": "direct",
+      "phase": "announcement", "description": "Attacker posts in Uber #general Slack: 'I announce I am a hacker'",
+      "payload": {"actor_name": "uber-ext-contractor-vpn", "actor_type": "human", "requested_action": "change_configuration", "target_system": "slack", "target_asset": "slack/#general", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "Message posted to #general channel from compromised contractor account: breach announcement"}
+    },
+    {
+      "id": "legit-incident-response", "timestamp": "2022-09-15T03:00:00Z", "adapter": "direct",
+      "phase": "response", "description": "SRE on-call disables compromised VPN account",
+      "payload": {"actor_name": "uber-sre-oncall", "actor_type": "human", "requested_action": "modify_security_policy", "target_system": "vpn-gateway", "target_asset": "corp-vpn/contractor-pool/ext-contractor", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Incident response: disabling compromised contractor VPN access. INC-2022-0915."}
+    }
+  ]
+}

@@ -26,6 +26,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from guardian.adapters.intune.proxy import IntuneProxy
+from guardian.adapters.intune.router import (
+    configure as configure_intune,
+    router as intune_router,
+)
+from guardian.circuit_breaker.breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig as CBConfig,
+)
 from guardian.feedback.store import FeedbackStore, FeedbackType
 from guardian.graph.models import EdgeType, NodeType
 from guardian.history.store import ActorProfile
@@ -69,11 +78,15 @@ if _STATIC_DIR.exists():
 
 _pipeline: GuardianPipeline | None = None
 _feedback_store: FeedbackStore | None = None
+_circuit_breaker: CircuitBreaker | None = None
+
+# Register adapter routers
+app.include_router(intune_router)
 
 
 @app.on_event("startup")
 def startup() -> None:
-    global _pipeline, _feedback_store
+    global _pipeline, _feedback_store, _circuit_breaker
     logger.info("Loading Guardian pipeline from config: %s", CONFIG_DIR)
     _feedback_store = FeedbackStore(str(AUDIT_LOG.parent / "feedback.sqlite"))
     _pipeline = GuardianPipeline.from_config(
@@ -81,6 +94,32 @@ def startup() -> None:
         policies_dir=POLICIES_DIR,
         audit_log_path=AUDIT_LOG,
     )
+
+    # Initialize circuit breaker from config
+    cb_cfg = _pipeline.config.circuit_breaker
+    if cb_cfg.enabled:
+        _circuit_breaker = CircuitBreaker(CBConfig(
+            max_destructive_per_minute=cb_cfg.max_destructive_per_minute,
+            max_destructive_per_hour=cb_cfg.max_destructive_per_hour,
+            cooldown_seconds=cb_cfg.cooldown_seconds,
+            destructive_actions=cb_cfg.destructive_actions,
+        ))
+        logger.info("Circuit breaker enabled: %d/min, %d/hour",
+                     cb_cfg.max_destructive_per_minute, cb_cfg.max_destructive_per_hour)
+
+    # Configure Intune adapter if enabled
+    intune_cfg = _pipeline.config.intune
+    if intune_cfg.enabled:
+        proxy = IntuneProxy(
+            graph_api_base=intune_cfg.graph_api_base,
+            timeout=intune_cfg.timeout_seconds,
+        )
+        configure_intune(_pipeline, proxy, _circuit_breaker)
+        logger.info("Intune adapter enabled: proxy → %s", intune_cfg.graph_api_base)
+    else:
+        # Configure without proxy (dry-run mode for testing)
+        configure_intune(_pipeline, None, _circuit_breaker)
+
     if SHADOW_MODE:
         logger.info("Guardian running in SHADOW MODE — advisory only, no enforcement")
     logger.info("Guardian pipeline ready.")

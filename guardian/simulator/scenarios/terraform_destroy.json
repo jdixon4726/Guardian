@@ -1,0 +1,74 @@
+{
+  "metadata": {
+    "name": "Terraform Destroy — Compromised CI/CD Token",
+    "description": "Attacker steals Terraform Cloud API token from compromised CI runner, enumerates workspaces, exfiltrates state files containing secrets, then queues a destroy plan targeting production VPC, RDS, and compute. 847 resources destroyed.",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["terraform", "ci-cd", "infrastructure", "destroy", "iac"],
+    "circuit_breaker_enabled": true,
+    "circuit_breaker_max_per_minute": 5,
+    "register_actors": [
+      {"name": "terraform-acme-prod-infra", "type": "automation", "max_privilege_level": "admin", "status": "active"},
+      {"name": "terraform-acme-staging", "type": "automation", "max_privilege_level": "elevated", "status": "active"}
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-plan-01", "timestamp": "2026-03-01T10:00:00Z", "adapter": "direct",
+      "phase": "baseline", "description": "Normal terraform plan — add 2 EC2 instances to staging",
+      "payload": {"actor_name": "terraform-acme-staging", "actor_type": "automation", "requested_action": "change_configuration", "target_system": "aws-ec2", "target_asset": "staging/ec2/web-fleet", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "Terraform plan: 2 to add, 0 to change, 0 to destroy"}
+    },
+    {
+      "id": "baseline-plan-02", "timestamp": "2026-03-03T14:00:00Z", "adapter": "direct",
+      "phase": "baseline", "description": "Normal terraform apply — modify security group in prod",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "modify_firewall_rule", "target_system": "aws-vpc-prod", "target_asset": "sg-0a1b2c3d", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Terraform apply: 0 to add, 1 to change, 0 to destroy"}
+    },
+    {
+      "id": "attack-enum-workspaces", "timestamp": "2026-03-10T02:00:00Z", "adapter": "direct",
+      "phase": "reconnaissance", "description": "Attacker enumerates TFC workspaces via stolen API token",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "change_configuration", "target_system": "terraform-cloud", "target_asset": "org/acme-corp/workspaces", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "GET /api/v2/organizations/acme-corp/workspaces — workspace enumeration at 2 AM"},
+      "expect_risk_min": 0.2
+    },
+    {
+      "id": "attack-state-exfil", "timestamp": "2026-03-10T02:15:00Z", "adapter": "direct",
+      "phase": "exfiltration", "description": "Attacker downloads prod state file (contains secrets in plaintext)",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "export_data", "target_system": "terraform-cloud", "target_asset": "workspace/prod-infra/state-v47", "privilege_level": "elevated", "sensitivity_level": "restricted", "business_context": "State file download containing connection strings, IAM credentials, RDS passwords"},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "attack-destroy-vpc", "timestamp": "2026-03-10T04:00:00Z", "adapter": "direct",
+      "phase": "destruction", "description": "Attacker queues destroy plan — delete production VPC",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "delete_vpc", "target_system": "aws-vpc-prod", "target_asset": "vpc-prod-main", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Terraform destroy plan: is-destroy=true, targeting vpc-prod-main. Plan: 0 to add, 0 to change, 847 to destroy"},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "attack-destroy-rds", "timestamp": "2026-03-10T04:00:01Z", "adapter": "direct",
+      "phase": "destruction", "description": "Destroy plan includes production RDS (no final snapshot)",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "drop_database", "target_system": "rds-prod", "target_asset": "prod-db-primary", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Terraform destroy: aws_db_instance.primary with skip_final_snapshot=true. IRREVERSIBLE DATA LOSS"},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "attack-destroy-compute", "timestamp": "2026-03-10T04:00:02Z", "adapter": "direct",
+      "phase": "destruction", "description": "Destroy plan terminates 50 production EC2 instances",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "terminate_instances", "target_system": "aws-ec2", "target_asset": "prod/ec2/app-fleet[0-49]", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Terraform destroy: aws_instance.app[0-49], 50 instances terminated"},
+      "expect_risk_min": 0.4
+    },
+    {
+      "id": "attack-destroy-s3", "timestamp": "2026-03-10T04:00:03Z", "adapter": "direct",
+      "phase": "destruction", "description": "Destroy plan deletes production S3 data bucket",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "destroy_infrastructure", "target_system": "aws-s3", "target_asset": "s3://acme-prod-data-lake", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "Terraform destroy: aws_s3_bucket.data — production data lake"},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "attack-destroy-security-groups", "timestamp": "2026-03-10T04:00:04Z", "adapter": "direct",
+      "phase": "destruction", "description": "Destroy plan removes all security groups",
+      "payload": {"actor_name": "terraform-acme-prod-infra", "actor_type": "automation", "requested_action": "disable_firewall", "target_system": "aws-vpc-prod", "target_asset": "sg-prod-all", "privilege_level": "elevated", "sensitivity_level": "high", "business_context": "Terraform destroy: aws_security_group.* — 12 security groups"},
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "recovery-staging-deploy", "timestamp": "2026-03-10T09:00:00Z", "adapter": "direct",
+      "phase": "recovery", "description": "Staging deploy works normally — unaffected by prod CB",
+      "payload": {"actor_name": "terraform-acme-staging", "actor_type": "automation", "requested_action": "change_configuration", "target_system": "aws-ec2", "target_asset": "staging/ec2/web-fleet", "privilege_level": "standard", "sensitivity_level": "internal", "business_context": "Normal staging deployment after incident"}
+    }
+  ]
+}

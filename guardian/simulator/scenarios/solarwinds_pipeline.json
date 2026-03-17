@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "name": "SolarWinds SUNBURST — Build Pipeline Compromise",
+    "description": "Reconstructs the APT29/SVR SUNBURST supply chain attack (2020). Attacker compromises build system, injects backdoor into Orion DLL, signed malicious update distributed to 18,000 customers. Mapped to CI/CD pipeline actions Guardian would evaluate.",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["supply-chain", "apt29", "russia", "sunburst", "solarwinds", "build-pipeline"],
+    "circuit_breaker_enabled": true,
+    "register_actors": [
+      {"name": "github-build-svc-orion", "type": "automation", "max_privilege_level": "elevated", "status": "active"},
+      {"name": "github-release-manager", "type": "human", "max_privilege_level": "admin", "status": "active"}
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-build-01", "timestamp": "2020-08-15T10:00:00Z", "adapter": "github",
+      "phase": "baseline", "description": "Normal Orion build — deploy to staging",
+      "payload": {"action": "requested", "environment": "staging", "workflow_name": "orion-build.yml", "workflow_ref": "refs/heads/main", "sender_login": "build-svc-orion", "sender_type": "Bot", "repository_full_name": "solarwinds/orion-platform", "repository_visibility": "private", "triggering_event": "push", "head_branch": "main"}
+    },
+    {
+      "id": "baseline-release-01", "timestamp": "2020-09-01T14:00:00Z", "adapter": "github",
+      "phase": "baseline", "description": "Normal release to production — signed by release manager",
+      "payload": {"action": "requested", "environment": "production", "workflow_name": "orion-release.yml", "workflow_ref": "refs/tags/v2019.4.5", "sender_login": "release-manager", "sender_type": "User", "repository_full_name": "solarwinds/orion-platform", "repository_visibility": "private", "triggering_event": "push", "head_branch": "release/2019.4"}
+    },
+    {
+      "id": "sunspot-implant", "timestamp": "2020-10-01T03:00:00Z", "adapter": "direct",
+      "phase": "build_compromise", "description": "SUNSPOT malware deployed on build server — modifies source during compilation",
+      "payload": {"actor_name": "unknown-apt29-operator", "actor_type": "human", "requested_action": "change_configuration", "target_system": "build-server-orion", "target_asset": "orion-build/msbuild-process", "privilege_level": "admin", "sensitivity_level": "restricted", "business_context": "SUNSPOT implant monitors MsBuild.exe, replaces InventoryManager.cs with backdoored version during build, restores original after. Persistent service."},
+      "expect_decision": "block", "expect_risk_min": 0.9
+    },
+    {
+      "id": "test-injection", "timestamp": "2020-10-15T04:00:00Z", "adapter": "github",
+      "phase": "build_compromise", "description": "APT29 triggers test build to verify injection compiles cleanly",
+      "payload": {"action": "requested", "environment": "staging", "workflow_name": "orion-build.yml", "workflow_ref": "refs/heads/feature/inventory-optimization", "sender_login": "sunspot-impersonated-bot", "sender_type": "Bot", "repository_full_name": "solarwinds/orion-platform", "repository_visibility": "private", "triggering_event": "workflow_dispatch", "head_branch": "feature/inventory-optimization"},
+      "expect_decision": "block"
+    },
+    {
+      "id": "sunburst-injection", "timestamp": "2020-02-20T04:30:00Z", "adapter": "github",
+      "phase": "code_injection", "description": "SUNBURST backdoor injected into production build — OrionImprovementBusinessLayer class",
+      "payload": {"action": "requested", "environment": "production", "workflow_name": "orion-release.yml", "workflow_ref": "refs/heads/release/2019.4-hf5", "sender_login": "sunspot-impersonated-bot", "sender_type": "Bot", "repository_full_name": "solarwinds/orion-platform", "repository_visibility": "private", "triggering_event": "push", "head_branch": "release/2019.4-hf5"},
+      "expect_decision": "block", "expect_risk_min": 0.3
+    },
+    {
+      "id": "signed-malicious-update", "timestamp": "2020-03-01T10:00:00Z", "adapter": "github",
+      "phase": "distribution", "description": "Signed malicious Orion update pushed to distribution — 18,000 customers affected",
+      "payload": {"action": "requested", "environment": "production", "workflow_name": "orion-distribution.yml", "workflow_ref": "refs/tags/v2020.2.1", "sender_login": "sunspot-impersonated-bot", "sender_type": "Bot", "repository_full_name": "solarwinds/orion-platform", "repository_visibility": "private", "triggering_event": "push", "head_branch": "release/2020.2"},
+      "expect_decision": "block"
+    },
+    {
+      "id": "golden-saml", "timestamp": "2020-06-15T02:00:00Z", "adapter": "entra_id",
+      "phase": "lateral_movement", "description": "Attacker forges SAML tokens via compromised ADFS — Golden SAML attack",
+      "payload": {"action": "create_federation", "target_type": "domain", "federation_domain": "attacker-controlled-idp.com", "target_display_name": "ADFS-Federation-Trust", "actor_name": "unknown-apt29-operator"},
+      "expect_decision": "block", "expect_risk_min": 0.9
+    },
+    {
+      "id": "legit-emergency-patch", "timestamp": "2020-12-14T09:00:00Z", "adapter": "github",
+      "phase": "remediation", "description": "Emergency patch deployed after FireEye discovers breach",
+      "payload": {"action": "requested", "environment": "production", "workflow_name": "orion-emergency-patch.yml", "workflow_ref": "refs/tags/v2020.2.1-hotfix1", "sender_login": "release-manager", "sender_type": "User", "repository_full_name": "solarwinds/orion-platform", "repository_visibility": "private", "triggering_event": "workflow_dispatch", "head_branch": "hotfix/sunburst-remediation"}
+    }
+  ]
+}

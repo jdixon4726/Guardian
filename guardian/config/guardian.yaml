@@ -19,6 +19,9 @@ scoring:
       - wipe_storage
       - terminate_instances
       - delete_vpc
+      - wipe_device
+      - retire_device
+      - delete_device
     security_control:
       - disable_endpoint_protection
       - disable_antivirus
@@ -108,3 +111,34 @@ policy:
   # opa_policy_path: guardian/evaluate
   # opa_timeout_seconds: 5.0
   # opa_fallback: block    # "block" or "builtin"
+
+circuit_breaker:
+  enabled: true
+  max_destructive_per_minute: 5    # trip after 5 destructive actions/min from one actor
+  max_destructive_per_hour: 20     # trip after 20 destructive actions/hour
+  cooldown_seconds: 300            # 5 min lockout after trip
+  destructive_actions:
+    - destroy_infrastructure
+    - delete_resource
+    - drop_database
+    - wipe_storage
+    - terminate_instances
+    - delete_vpc
+    - wipe_device
+    - retire_device
+    - delete_device
+    - remote_wipe
+    - factory_reset
+
+intune:
+  enabled: false                   # enable when deploying as Intune proxy
+  graph_api_base: "https://graph.microsoft.com/v1.0"
+  timeout_seconds: 30.0
+  intercepted_actions:             # actions Guardian evaluates before forwarding
+    - wipe
+    - retire
+    - delete
+    - resetPasscode
+  passthrough_actions:             # actions forwarded without evaluation
+    - syncDevice
+    - rebootNow
