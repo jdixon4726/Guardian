@@ -10,6 +10,7 @@ import FeedbackAccuracy from './views/FeedbackAccuracy'
 import Reconciliation from './views/Reconciliation'
 import ThreatIntel from './views/ThreatIntel'
 import Onboarding from './views/Onboarding'
+import Compliance from './views/Compliance'
 
 function App() {
   const { theme, toggle } = useTheme()
@@ -40,6 +41,7 @@ function App() {
           <li><NavLink to="/feedback">&#10003; Feedback & Accuracy</NavLink></li>
           <li><NavLink to="/reconciliation">&#9638; Reconciliation</NavLink></li>
           <li><NavLink to="/threat-intel">&#9888; Threat Intel</NavLink></li>
+          <li><NavLink to="/compliance">&#9745; Compliance</NavLink></li>
           <li><NavLink to="/onboard">&#9881; Setup</NavLink></li>
         </ul>
 
@@ -60,6 +62,7 @@ function App() {
           <Route path="/feedback" element={<FeedbackAccuracy />} />
           <Route path="/reconciliation" element={<Reconciliation />} />
           <Route path="/threat-intel" element={<ThreatIntel />} />
+          <Route path="/compliance" element={<Compliance />} />
           <Route path="/onboard" element={<Onboarding />} />
         </Routes>
       </main>

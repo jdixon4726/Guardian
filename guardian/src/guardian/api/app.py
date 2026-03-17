@@ -1273,6 +1273,70 @@ async def onboard_apply_template(request: Request) -> dict:
     }
 
 
+# ── Compliance Report Endpoints ───────────────────────────────────────────────
+
+@app.get("/v1/compliance/report")
+def compliance_report(
+    frameworks: str = "",
+    window_hours: int = 720,
+) -> dict:
+    """
+    Generate a compliance report from Guardian's audit log.
+
+    Maps every action evaluation to regulatory controls (NIST 800-53,
+    HIPAA, FedRAMP, EU AI Act). Output is structured JSON suitable for
+    ATO packages, POAM documentation, and SOC 2 audit evidence.
+
+    Query params:
+      frameworks: comma-separated (e.g., "NIST-800-53,HIPAA"). Empty = all.
+      window_hours: how many hours of audit data to analyze (default: 720 = 30 days)
+    """
+    from guardian.compliance.report import ComplianceReportGenerator
+    pipeline = get_pipeline()
+    generator = ComplianceReportGenerator(pipeline.audit_logger.log_path)
+    fw_list = [f.strip() for f in frameworks.split(",") if f.strip()] or None
+    return generator.generate(frameworks=fw_list, window_hours=window_hours)
+
+
+@app.get("/v1/compliance/controls")
+def compliance_controls(framework: str = "") -> list[dict]:
+    """
+    List all compliance controls Guardian maps to.
+
+    Optionally filter by framework ID (NIST-800-53, HIPAA, FedRAMP, EU-AI-Act).
+    Returns control ID, name, family, Guardian capability, and evidence source.
+    """
+    from guardian.compliance.frameworks import ALL_CONTROLS, FRAMEWORK_INDEX
+    if framework and framework in FRAMEWORK_INDEX:
+        controls = FRAMEWORK_INDEX[framework]
+    else:
+        controls = ALL_CONTROLS
+
+    return [
+        {
+            "control_id": c.control_id,
+            "control_name": c.control_name,
+            "framework": c.framework,
+            "family": c.family,
+            "guardian_capability": c.guardian_capability,
+            "evidence_source": c.evidence_source,
+            "verification": c.verification,
+            "automated": c.automated,
+        }
+        for c in controls
+    ]
+
+
+@app.get("/v1/compliance/frameworks")
+def compliance_frameworks() -> list[dict]:
+    """List all supported compliance frameworks with control counts."""
+    from guardian.compliance.frameworks import FRAMEWORK_INDEX
+    return [
+        {"framework": fw, "control_count": len(controls)}
+        for fw, controls in FRAMEWORK_INDEX.items()
+    ]
+
+
 @app.get("/v1/system/status")
 def system_status() -> dict:
     """

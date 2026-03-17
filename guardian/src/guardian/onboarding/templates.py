@@ -14,19 +14,35 @@ from guardian.onboarding.models import IndustryTemplate
 INDUSTRY_SCORING = {
     IndustryTemplate.healthcare: {
         "action_category_scores": {
-            "destructive": 0.95,        # higher than default 0.90
-            "security_control": 0.90,   # higher — compliance critical
-            "data_exfil": 0.90,         # PHI/PII protection
+            "destructive": 0.95,
+            "security_control": 0.90,
+            "data_exfil": 0.90,
             "privilege": 0.75,
             "moderate": 0.50,
         },
         "actor_type_scores": {
-            "ai_agent": 0.65,           # higher scrutiny for AI in healthcare
+            "ai_agent": 0.65,
             "automation": 0.40,
             "human": 0.20,
         },
-        "velocity_hourly_extreme": 30,  # lower threshold
+        "velocity_hourly_extreme": 30,
         "velocity_hourly_high": 15,
+    },
+    IndustryTemplate.gov_healthcare: {
+        "action_category_scores": {
+            "destructive": 0.98,        # maximum — patient safety
+            "security_control": 0.95,   # federal + healthcare requirement
+            "data_exfil": 0.95,         # PHI + government data
+            "privilege": 0.85,          # strict IAM governance
+            "moderate": 0.55,
+        },
+        "actor_type_scores": {
+            "ai_agent": 0.70,           # highest scrutiny — federal AI oversight
+            "automation": 0.45,
+            "human": 0.25,
+        },
+        "velocity_hourly_extreme": 20,  # very conservative
+        "velocity_hourly_high": 10,
     },
     IndustryTemplate.fintech: {
         "action_category_scores": {
@@ -82,6 +98,9 @@ INDUSTRY_ADAPTERS = {
     IndustryTemplate.healthcare: [
         "intune", "entra_id", "aws_eventbridge", "terraform",
     ],
+    IndustryTemplate.gov_healthcare: [
+        "intune", "entra_id", "aws_eventbridge", "terraform", "kubernetes", "jamf",
+    ],
     IndustryTemplate.fintech: [
         "aws_eventbridge", "terraform", "kubernetes", "github",
     ],
@@ -99,6 +118,7 @@ INDUSTRY_ADAPTERS = {
 # Compliance frameworks per industry
 INDUSTRY_COMPLIANCE = {
     IndustryTemplate.healthcare: ["HIPAA", "NIST-800-53", "SOC2"],
+    IndustryTemplate.gov_healthcare: ["HIPAA", "NIST-800-53", "FedRAMP", "FISMA", "CMMC", "SOC2"],
     IndustryTemplate.fintech: ["PCI-DSS", "SOC2", "SOX", "NIST-CSF"],
     IndustryTemplate.saas: ["SOC2", "ISO-27001", "GDPR"],
     IndustryTemplate.government: ["FedRAMP", "NIST-800-53", "FISMA", "CMMC"],
@@ -108,6 +128,7 @@ INDUSTRY_COMPLIANCE = {
 # Circuit breaker presets
 INDUSTRY_CIRCUIT_BREAKER = {
     IndustryTemplate.healthcare: {"max_per_minute": 3, "max_per_hour": 10, "cooldown": 600},
+    IndustryTemplate.gov_healthcare: {"max_per_minute": 2, "max_per_hour": 6, "cooldown": 900},
     IndustryTemplate.fintech: {"max_per_minute": 3, "max_per_hour": 15, "cooldown": 600},
     IndustryTemplate.saas: {"max_per_minute": 10, "max_per_hour": 50, "cooldown": 180},
     IndustryTemplate.government: {"max_per_minute": 2, "max_per_hour": 8, "cooldown": 900},

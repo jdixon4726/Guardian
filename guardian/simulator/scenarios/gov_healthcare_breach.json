@@ -1,0 +1,238 @@
+{
+  "metadata": {
+    "name": "Government Healthcare Breach \u2014 VA Hospital Device Wipe + PHI Exfiltration",
+    "description": "Simulates a coordinated attack on a VA hospital network: attacker compromises Entra ID admin, creates rogue service account, exfiltrates PHI from clinical databases, wipes Intune-managed clinical workstations, and disables endpoint protection on imaging systems. Tests Guardian's gov healthcare template with HIPAA + NIST 800-53 + FedRAMP controls.",
+    "author": "Guardian Security Team",
+    "version": "1.0",
+    "tags": ["government", "healthcare", "va-hospital", "hipaa", "nist-800-53", "fedramp", "phi", "wiper", "intune"],
+    "circuit_breaker_enabled": true,
+    "circuit_breaker_max_per_minute": 2,
+    "circuit_breaker_max_per_hour": 6,
+    "register_actors": [
+      {"name": "va-itops-admin@va.gov", "type": "human", "max_privilege_level": "admin", "status": "active"},
+      {"name": "va-clinical-imaging-svc", "type": "automation", "max_privilege_level": "standard", "status": "active"},
+      {"name": "va-ehrs-sync-bot", "type": "automation", "max_privilege_level": "elevated", "status": "active"}
+    ]
+  },
+  "events": [
+    {
+      "id": "baseline-ehr-sync",
+      "timestamp": "2026-03-01T08:00:00Z",
+      "adapter": "direct",
+      "phase": "baseline",
+      "description": "Normal: EHR sync bot reads patient records for clinical dashboard",
+      "payload": {
+        "actor_name": "va-ehrs-sync-bot",
+        "actor_type": "automation",
+        "requested_action": "change_configuration",
+        "target_system": "va-ehrm-cerner",
+        "target_asset": "ehrm/patient-records/sync",
+        "privilege_level": "elevated",
+        "sensitivity_level": "restricted",
+        "business_context": "Routine EHR data sync for clinical decision support dashboard"
+      }
+    },
+    {
+      "id": "baseline-imaging-sync",
+      "timestamp": "2026-03-01T09:00:00Z",
+      "adapter": "direct",
+      "phase": "baseline",
+      "description": "Normal: Clinical imaging service processes DICOM studies",
+      "payload": {
+        "actor_name": "va-clinical-imaging-svc",
+        "actor_type": "automation",
+        "requested_action": "change_configuration",
+        "target_system": "va-pacs-imaging",
+        "target_asset": "pacs/dicom-processor",
+        "privilege_level": "standard",
+        "sensitivity_level": "restricted",
+        "business_context": "DICOM study processing for radiology workflow"
+      }
+    },
+    {
+      "id": "baseline-admin-patching",
+      "timestamp": "2026-03-03T14:00:00Z",
+      "adapter": "intune",
+      "phase": "baseline",
+      "description": "Normal: IT admin pushes Windows patches to clinical workstations",
+      "payload": {
+        "device_id": "va-ws-radiology-001",
+        "action": "syncDevice",
+        "device_name": "VA-RADIOLOGY-WS-001",
+        "operating_system": "Windows",
+        "actor_name": "va-itops-admin@va.gov"
+      }
+    },
+    {
+      "id": "attack-rogue-admin-creation",
+      "timestamp": "2026-03-10T02:15:00Z",
+      "adapter": "entra_id",
+      "phase": "privilege_escalation",
+      "description": "Attacker creates rogue Global Admin in VA Entra ID tenant",
+      "payload": {
+        "action": "assign_role",
+        "target_type": "user",
+        "target_id": "attacker-oid-va",
+        "target_display_name": "VA-ITOps-SvcAcct-Temp",
+        "role_display_name": "Global Administrator",
+        "actor_name": "va-rogue-admin@va.gov"
+      },
+      "expect_decision": "block",
+      "expect_risk_min": 1.0
+    },
+    {
+      "id": "attack-disable-mfa",
+      "timestamp": "2026-03-10T02:20:00Z",
+      "adapter": "entra_id",
+      "phase": "defense_evasion",
+      "description": "Attacker disables MFA for VA clinical staff conditional access policy",
+      "payload": {
+        "action": "disable_mfa",
+        "target_type": "user",
+        "target_display_name": "VA-Clinical-Staff-MFA-Policy",
+        "actor_name": "va-rogue-admin@va.gov"
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-phi-database-access",
+      "timestamp": "2026-03-10T02:30:00Z",
+      "adapter": "aws",
+      "phase": "phi_exfiltration",
+      "description": "Attacker accesses VA patient database \u2014 PHI exfiltration attempt",
+      "payload": {
+        "event_id": "va-atk-001",
+        "event_time": "2026-03-10T02:30:00Z",
+        "event_source": "rds.amazonaws.com",
+        "event_name": "GetObject",
+        "aws_region": "us-gov-west-1",
+        "source_ip": "185.220.101.42",
+        "user_identity_type": "IAMUser",
+        "user_identity_username": "va-rogue-admin",
+        "user_identity_account_id": "va-govcloud-account",
+        "request_parameters": {"bucketName": "va-patient-records-phi", "key": "exports/full-patient-export.csv.gz"}
+      },
+      "expect_risk_min": 0.4
+    },
+    {
+      "id": "attack-phi-bulk-export",
+      "timestamp": "2026-03-10T02:35:00Z",
+      "adapter": "direct",
+      "phase": "phi_exfiltration",
+      "description": "Attacker bulk-exports PHI from clinical data warehouse",
+      "payload": {
+        "actor_name": "va-rogue-admin@va.gov",
+        "actor_type": "human",
+        "requested_action": "export_data",
+        "target_system": "va-clinical-datawarehouse",
+        "target_asset": "cdw/patient-demographics/full-extract",
+        "privilege_level": "admin",
+        "sensitivity_level": "restricted",
+        "business_context": "Bulk PHI export: 2.3M patient records including SSN, diagnoses, medications. Source IP: 185.220.101.42 (non-VA network)"
+      },
+      "expect_decision": "block",
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "attack-wipe-clinical-ws-001",
+      "timestamp": "2026-03-10T03:00:00Z",
+      "adapter": "intune",
+      "phase": "clinical_device_wipe",
+      "description": "Attacker wipes radiology workstation \u2014 disrupts imaging workflow",
+      "payload": {
+        "device_id": "va-ws-radiology-001",
+        "action": "wipe",
+        "device_name": "VA-RADIOLOGY-WS-001",
+        "operating_system": "Windows",
+        "actor_name": "va-rogue-admin@va.gov"
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-wipe-clinical-ws-002",
+      "timestamp": "2026-03-10T03:00:01Z",
+      "adapter": "intune",
+      "phase": "clinical_device_wipe",
+      "description": "Attacker wipes pharmacy dispensing workstation",
+      "payload": {
+        "device_id": "va-ws-pharmacy-001",
+        "action": "wipe",
+        "device_name": "VA-PHARMACY-DISPENSE-001",
+        "operating_system": "Windows",
+        "actor_name": "va-rogue-admin@va.gov"
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-wipe-clinical-ws-003",
+      "timestamp": "2026-03-10T03:00:02Z",
+      "adapter": "intune",
+      "phase": "clinical_device_wipe",
+      "description": "Attacker wipes ER triage workstation \u2014 PATIENT SAFETY RISK",
+      "payload": {
+        "device_id": "va-ws-er-triage-001",
+        "action": "wipe",
+        "device_name": "VA-ER-TRIAGE-001",
+        "operating_system": "Windows",
+        "actor_name": "va-rogue-admin@va.gov"
+      },
+      "expect_decision": "block",
+      "expect_circuit_breaker": true
+    },
+    {
+      "id": "attack-disable-edr",
+      "timestamp": "2026-03-10T03:05:00Z",
+      "adapter": "direct",
+      "phase": "defense_evasion",
+      "description": "Attacker disables CrowdStrike EDR on clinical imaging servers",
+      "payload": {
+        "actor_name": "va-rogue-admin@va.gov",
+        "actor_type": "human",
+        "requested_action": "disable_endpoint_protection",
+        "target_system": "va-edr-crowdstrike",
+        "target_asset": "edr/clinical-imaging-servers",
+        "privilege_level": "admin",
+        "sensitivity_level": "restricted",
+        "business_context": "Disable CrowdStrike Falcon on PACS imaging servers. Would expose medical imaging infrastructure."
+      },
+      "expect_decision": "block"
+    },
+    {
+      "id": "attack-cloudtrail-disable",
+      "timestamp": "2026-03-10T03:10:00Z",
+      "adapter": "aws",
+      "phase": "defense_evasion",
+      "description": "Attacker disables CloudTrail in GovCloud \u2014 covering tracks",
+      "payload": {
+        "event_id": "va-atk-002",
+        "event_time": "2026-03-10T03:10:00Z",
+        "event_source": "cloudtrail.amazonaws.com",
+        "event_name": "StopLogging",
+        "aws_region": "us-gov-west-1",
+        "source_ip": "185.220.101.42",
+        "user_identity_type": "IAMUser",
+        "user_identity_username": "va-rogue-admin",
+        "user_identity_account_id": "va-govcloud-account",
+        "request_parameters": {"name": "va-govcloud-management-trail"}
+      },
+      "expect_risk_min": 0.5
+    },
+    {
+      "id": "legit-clinical-after",
+      "timestamp": "2026-03-10T08:00:00Z",
+      "adapter": "direct",
+      "phase": "recovery",
+      "description": "Legitimate clinical imaging service resumes \u2014 unaffected by attacker lockout",
+      "payload": {
+        "actor_name": "va-clinical-imaging-svc",
+        "actor_type": "automation",
+        "requested_action": "change_configuration",
+        "target_system": "va-pacs-imaging",
+        "target_asset": "pacs/dicom-processor",
+        "privilege_level": "standard",
+        "sensitivity_level": "restricted",
+        "business_context": "DICOM study processing resumed after incident containment"
+      }
+    }
+  ]
+}

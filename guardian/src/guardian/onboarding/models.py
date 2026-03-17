@@ -32,6 +32,7 @@ class RiskPosture(str, Enum):
 
 class IndustryTemplate(str, Enum):
     healthcare = "healthcare"
+    gov_healthcare = "gov_healthcare"
     fintech = "fintech"
     saas = "saas"
     government = "government"

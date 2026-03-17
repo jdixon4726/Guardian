@@ -160,9 +160,10 @@ class TestDiscoveryEngine:
 class TestIndustryTemplates:
     def test_list_all_templates(self):
         templates = list_templates()
-        assert len(templates) == 5
+        assert len(templates) == 6
         names = {t["industry"] for t in templates}
         assert "healthcare" in names
+        assert "gov_healthcare" in names
         assert "fintech" in names
         assert "saas" in names
 
