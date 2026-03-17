@@ -1,0 +1,29 @@
+# Guardian — Render Blueprint
+# Deploy: connect repo to Render, it auto-detects this file
+
+services:
+  - type: web
+    name: guardian
+    runtime: docker
+    dockerfilePath: ./guardian/Dockerfile
+    dockerContext: ./guardian
+    plan: free
+    region: oregon
+    healthCheckPath: /v1/health
+    envVars:
+      - key: GUARDIAN_API_KEY
+        generateValue: true
+      - key: GUARDIAN_SHADOW_MODE
+        value: "false"
+      - key: GUARDIAN_CORS_ORIGINS
+        value: "*"
+      - key: GUARDIAN_JSON_LOGS
+        value: "true"
+      - key: GUARDIAN_RATE_LIMIT
+        value: "200"
+      - key: GUARDIAN_AUDIT_SIGNING_KEY
+        generateValue: true
+    disk:
+      name: guardian-data
+      mountPath: /app/data
+      sizeGB: 1

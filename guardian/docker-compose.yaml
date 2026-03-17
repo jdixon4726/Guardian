@@ -16,6 +16,9 @@ services:
       - GUARDIAN_SHADOW_MODE=false
       - GUARDIAN_API_KEY=${GUARDIAN_API_KEY:-}
       - GUARDIAN_CORS_ORIGINS=*
+      - GUARDIAN_JSON_LOGS=true
+      - GUARDIAN_RATE_LIMIT=200
+      - GUARDIAN_AUDIT_SIGNING_KEY=${GUARDIAN_AUDIT_SIGNING_KEY:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health')"]
