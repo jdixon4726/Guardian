@@ -73,8 +73,15 @@ SHADOW_MODE = os.getenv("GUARDIAN_SHADOW_MODE", "false").lower() == "true"
 
 app = FastAPI(
     title="Guardian",
-    description="Behavioral governance engine for machine identities.",
-    version="0.2.0",
+    description=(
+        "Runtime governance and privilege control for AI agents and automation "
+        "identities at the action layer. 9 adapters, 10-stage behavioral pipeline, "
+        "circuit breaker, threat intelligence, event replay simulator. "
+        "No LLMs in the decision path — deterministic, auditable math only."
+    ),
+    version="0.3.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 app.add_middleware(
@@ -321,7 +328,16 @@ async def evaluate(
     _auth: None = Depends(verify_api_key),
     _rate: None = Depends(_check_rate_limit),
 ) -> EvaluateResponse:
-    """Submit an action request for governance evaluation."""
+    """
+    Submit an action request for governance evaluation.
+
+    Runs the full 10-stage pipeline: identity attestation, context enrichment,
+    behavioral assessment, policy evaluation, risk scoring, threat intel overlays,
+    graph cascade context, decision engine, audit logging, and history recording.
+
+    Returns the decision (allow/block/require_review), risk score, drift score,
+    explanation, and compliance tags. Rate limited to GUARDIAN_RATE_LIMIT/minute.
+    """
     pipeline = get_pipeline()
     decision = pipeline.evaluate(request)
 
@@ -346,7 +362,12 @@ def recent_decisions(
     decision_filter: str | None = Query(default=None, alias="decision"),
     _auth: None = Depends(verify_api_key),
 ) -> RecentDecisionsResponse:
-    """Retrieve recent decisions from the audit log."""
+    """
+    Retrieve recent decisions from the audit log.
+
+    Supports filtering by actor name and decision type. Returns decisions
+    in reverse chronological order. Used by the Command Center dashboard.
+    """
     pipeline = get_pipeline()
     log_path = pipeline.audit_logger.log_path
 
@@ -412,7 +433,13 @@ def actor_profile(
     actor_name: str,
     _auth: None = Depends(verify_api_key),
 ) -> ActorProfileResponse:
-    """Retrieve an actor's evaluation history, trust level, and velocity."""
+    """
+    Retrieve an actor's behavioral profile.
+
+    Returns trust level, trust band, action counts (allows/blocks/reviews),
+    velocity (hourly/daily), history window, and top action distribution.
+    Used by the Actor Intelligence dashboard view.
+    """
     pipeline = get_pipeline()
     profile = pipeline.history_store.get_profile(actor_name)
     return ActorProfileResponse.from_profile(profile)
@@ -465,7 +492,14 @@ def actor_pattern(
 def audit_verify(
     _auth: None = Depends(verify_api_key),
 ) -> JSONResponse:
-    """Verify the audit log hash chain integrity."""
+    """
+    Verify the audit log hash chain integrity.
+
+    Walks the entire audit log and verifies that each entry's SHA-256 hash
+    matches the recorded hash, and that the previous_hash chain is unbroken.
+    Returns valid=true if the chain is intact, or the specific line and reason
+    of the first detected break.
+    """
     pipeline = get_pipeline()
     valid, reason = pipeline.audit_logger.verify()
     return JSONResponse(content={"valid": valid, "reason": reason})
@@ -980,7 +1014,14 @@ def _map_demo_event(event, mappers) -> ActionRequest | None:
 
 @app.post("/v1/threat-intel/sync")
 async def sync_threat_feeds() -> dict:
-    """Sync threat feeds (CISA KEV) and create risk overlays."""
+    """
+    Sync threat intelligence feeds and create risk overlays.
+
+    Fetches the CISA Known Exploited Vulnerabilities catalog, maps entries
+    to Guardian's action taxonomy, and creates pending risk overlays.
+    Overlays require explicit activation before they affect scoring.
+    Rate limited to 1 sync per hour. Auto-expires stale overlays.
+    """
     from guardian.threat_intel.feeds import CISAKEVFeed
     pipeline = get_pipeline()
     kev_feed = CISAKEVFeed(pipeline.overlay_engine)
@@ -1093,7 +1134,13 @@ def metrics_json() -> dict:
 
 @app.get("/v1/system/status")
 def system_status() -> dict:
-    """System observability metrics for the dashboard."""
+    """
+    System observability metrics for the dashboard.
+
+    Returns events ingested, active actor count, connected systems,
+    graph node count, and evaluation latency percentiles.
+    Auto-refreshed by the Command Center every 10 seconds.
+    """
     pipeline = get_pipeline()
     snap = metrics.snapshot()
     counters = snap.get("counters", {})
@@ -1146,7 +1193,13 @@ def system_status() -> dict:
 
 @app.get("/v1/systems/connected")
 def connected_systems() -> list[dict]:
-    """Status of all connected adapter systems."""
+    """
+    Status of all 9 connected adapter systems.
+
+    Returns each adapter's name, status (active/standby), event count,
+    and last event timestamp. Scans the audit log to determine which
+    systems have received events.
+    """
     import json as _json
     pipeline = get_pipeline()
 
@@ -1211,7 +1264,13 @@ def connected_systems() -> list[dict]:
 
 @app.get("/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Deep health check — verifies all dependencies are operational."""
+    """
+    Deep health check — verifies all dependencies are operational.
+
+    Checks pipeline initialization, audit log writability, policy engine,
+    and history store connectivity. Returns component-level status and
+    overall health (ok/degraded). Used by Render health monitoring.
+    """
     components = {}
 
     # Check pipeline
