@@ -93,82 +93,187 @@ function SystemObservability() {
   )
 }
 
-// ── Connected Systems Panel ─────────────────────────────────────────────────
-function ConnectedSystems() {
+// ── Connected Systems Panel (clickable, expandable) ─────────────────────────
+function ConnectedSystems({ decisions }) {
   const { data, loading } = useApi('/v1/systems/connected', { autoRefresh: 30000 })
+  const [expanded, setExpanded] = useState(null)
 
   if (loading && !data) return null
 
   const systems = data?.systems || data || []
   if (!Array.isArray(systems) || systems.length === 0) return null
 
+  // Build per-system decision breakdown from decision data
+  const systemDecisions = useMemo(() => {
+    if (!decisions) return {}
+    const bySystem = {}
+    decisions.forEach(d => {
+      const sys = d.target_system || d.action || 'unknown'
+      if (!bySystem[sys]) bySystem[sys] = { blocks: 0, reviews: 0, allows: 0, actors: new Set(), topActions: {} }
+      if (d.decision === 'block') bySystem[sys].blocks++
+      else if (d.decision === 'require_review') bySystem[sys].reviews++
+      else bySystem[sys].allows++
+      bySystem[sys].actors.add(d.actor_name)
+      const act = d.action || d.requested_action || ''
+      bySystem[sys].topActions[act] = (bySystem[sys].topActions[act] || 0) + 1
+    })
+    return bySystem
+  }, [decisions])
+
+  // Match decisions to a connected system by pattern
+  const getSystemStats = (sys) => {
+    const pattern = (sys.adapter || sys.name || '').toLowerCase()
+    let stats = { blocks: 0, reviews: 0, allows: 0, actors: new Set(), topActions: {} }
+    for (const [key, val] of Object.entries(systemDecisions)) {
+      if (key.toLowerCase().includes(pattern) || pattern.includes(key.toLowerCase().split('-')[0])) {
+        stats.blocks += val.blocks
+        stats.reviews += val.reviews
+        stats.allows += val.allows
+        val.actors.forEach(a => stats.actors.add(a))
+        for (const [act, count] of Object.entries(val.topActions)) {
+          stats.topActions[act] = (stats.topActions[act] || 0) + count
+        }
+      }
+    }
+    return stats
+  }
+
+  const ADAPTER_DOCS = {
+    'terraform': { pattern: 'Async Callback', endpoint: '/v1/terraform/run-task', setup: 'Add as TFC Run Task' },
+    'kubernetes': { pattern: 'Admission Webhook', endpoint: '/v1/kubernetes/admit', setup: 'Deploy ValidatingWebhookConfiguration' },
+    'intune': { pattern: 'API Proxy', endpoint: '/v1/intune/device-action', setup: 'Route Graph API through Guardian' },
+    'entra_id': { pattern: 'API Proxy', endpoint: '/v1/entra-id/admin-action', setup: 'Route admin ops through Guardian' },
+    'jamf': { pattern: 'API Proxy', endpoint: '/v1/jamf/device-command', setup: 'Route MDM commands through Guardian' },
+    'github': { pattern: 'Deployment Gate', endpoint: '/v1/github/deployment-gate', setup: 'Add as deployment protection rule' },
+    'aws_eventbridge': { pattern: 'Event-Driven', endpoint: '/v1/aws/evaluate-event', setup: 'Send CloudTrail events via EventBridge' },
+    'mcp': { pattern: 'Protocol-Layer', endpoint: '/v1/mcp/evaluate-tool-call', setup: 'Intercept MCP tool calls' },
+    'a2a': { pattern: 'Protocol-Layer', endpoint: '/v1/a2a/evaluate-delegation', setup: 'Intercept A2A delegations' },
+  }
+
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{
-        fontSize: 11,
-        textTransform: 'uppercase',
-        letterSpacing: 0.8,
-        color: 'var(--text-muted)',
-        marginBottom: 8,
-        fontWeight: 600,
+        fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8,
+        color: 'var(--text-muted)', marginBottom: 8, fontWeight: 600,
       }}>
         Connected Systems
       </div>
       <div style={{
-        display: 'flex',
-        gap: 10,
-        overflowX: 'auto',
-        paddingBottom: 4,
-        scrollbarWidth: 'thin',
+        display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'thin',
       }}>
         {systems.map((sys, i) => {
           const isActive = (sys.status || '').toLowerCase() === 'active'
+          const isExpanded = expanded === sys.name
           return (
-            <div key={sys.name || i} className="card" style={{
-              padding: '10px 14px',
-              minWidth: 160,
-              flexShrink: 0,
-              borderLeft: `3px solid ${isActive ? 'var(--green)' : 'var(--border)'}`,
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                marginBottom: 6,
-              }}>
+            <div
+              key={sys.name || i}
+              className="card"
+              onClick={() => setExpanded(isExpanded ? null : sys.name)}
+              style={{
+                padding: '10px 14px',
+                minWidth: isExpanded ? 320 : 160,
+                flexShrink: 0,
+                borderLeft: `3px solid ${isActive ? 'var(--green)' : 'var(--border)'}`,
+                cursor: 'pointer',
+                transition: 'all 0.25s var(--ease-default)',
+                borderColor: isExpanded ? 'var(--accent)' : undefined,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <span style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
+                  width: 7, height: 7, borderRadius: '50%', display: 'inline-block', flexShrink: 0,
                   background: isActive ? 'var(--green)' : 'var(--text-muted)',
-                  display: 'inline-block',
-                  flexShrink: 0,
                 }} />
                 <span style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: 'var(--text)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  fontSize: 13, fontWeight: 600, color: 'var(--text)',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
                   {sys.name}
                 </span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                  {isExpanded ? '\u25B4' : '\u25BE'}
+                </span>
               </div>
               <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'baseline',
-                fontSize: 11,
-                color: 'var(--text-muted)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                fontSize: 11, color: 'var(--text-muted)',
               }}>
                 <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {sys.event_count != null ? `${sys.event_count.toLocaleString()} events` : '—'}
+                  {sys.event_count != null ? `${sys.event_count.toLocaleString()} events` : '\u2014'}
                 </span>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>
                   {relativeTime(sys.last_event)}
                 </span>
               </div>
+
+              {/* Expanded detail panel */}
+              {isExpanded && (() => {
+                const stats = getSystemStats(sys)
+                const adapterInfo = ADAPTER_DOCS[sys.adapter] || {}
+                const topActions = Object.entries(stats.topActions).sort((a, b) => b[1] - a[1]).slice(0, 5)
+
+                return (
+                  <div style={{
+                    marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)',
+                    animation: 'fadeIn 0.2s ease',
+                  }} onClick={e => e.stopPropagation()}>
+                    {/* Decision breakdown */}
+                    <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: 18, fontWeight: 300, fontFamily: 'var(--mono)', color: 'var(--red)' }}>{stats.blocks}</div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Blocked</div>
+                      </div>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: 18, fontWeight: 300, fontFamily: 'var(--mono)', color: 'var(--yellow)' }}>{stats.reviews}</div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Review</div>
+                      </div>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: 18, fontWeight: 300, fontFamily: 'var(--mono)', color: 'var(--green)' }}>{stats.allows}</div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Allowed</div>
+                      </div>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: 18, fontWeight: 300, fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{stats.actors.size}</div>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actors</div>
+                      </div>
+                    </div>
+
+                    {/* Top actions */}
+                    {topActions.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Top Actions</div>
+                        {topActions.map(([action, count]) => (
+                          <div key={action} style={{
+                            display: 'flex', justifyContent: 'space-between', fontSize: 11,
+                            padding: '2px 0', color: 'var(--text-muted)',
+                          }}>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>{action}</span>
+                            <span style={{ fontFamily: 'var(--mono)' }}>{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Adapter info */}
+                    {adapterInfo.pattern && (
+                      <div style={{
+                        padding: '8px 10px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)',
+                        fontSize: 11, color: 'var(--text-muted)',
+                      }}>
+                        <div style={{ marginBottom: 3 }}>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>Pattern:</span> {adapterInfo.pattern}
+                        </div>
+                        <div style={{ marginBottom: 3 }}>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>Endpoint:</span>{' '}
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)' }}>{adapterInfo.endpoint}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>Setup:</span> {adapterInfo.setup}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )
         })}
@@ -446,7 +551,7 @@ export default function CommandCenter() {
       <SystemObservability />
 
       {/* Connected Systems — horizontal scroll */}
-      <ConnectedSystems />
+      <ConnectedSystems decisions={data?.decisions} />
 
       {/* Action Items — "What needs my attention?" */}
       {data && (
