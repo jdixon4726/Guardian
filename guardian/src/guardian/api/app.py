@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,10 +31,23 @@ from guardian.adapters.intune.router import (
     configure as configure_intune,
     router as intune_router,
 )
+from guardian.adapters.entra_id.router import (
+    configure as configure_entra,
+    router as entra_router,
+)
+from guardian.adapters.mcp.router import (
+    configure as configure_mcp,
+    router as mcp_router,
+)
+from guardian.adapters.a2a.router import (
+    configure as configure_a2a,
+    router as a2a_router,
+)
 from guardian.circuit_breaker.breaker import (
     CircuitBreaker,
     CircuitBreakerConfig as CBConfig,
 )
+from guardian.observability import MetricsMiddleware, metrics, configure_structured_logging
 from guardian.feedback.store import FeedbackStore, FeedbackType
 from guardian.graph.models import EdgeType, NodeType
 from guardian.history.store import ActorProfile
@@ -70,6 +83,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+app.add_middleware(MetricsMiddleware)
+
+# Enable structured JSON logging in production
+if os.getenv("GUARDIAN_JSON_LOGS", "").lower() == "true":
+    configure_structured_logging(json_mode=True)
 
 # Serve the dashboard UI
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -82,6 +100,32 @@ _circuit_breaker: CircuitBreaker | None = None
 
 # Register adapter routers
 app.include_router(intune_router)
+app.include_router(entra_router)
+app.include_router(mcp_router)
+app.include_router(a2a_router)
+
+# ── Rate Limiting ────────────────────────────────────────────────────────────
+# Simple in-memory rate limiter for the evaluation API.
+# Production deployments should use Redis-backed rate limiting.
+_rate_limit_window: dict[str, list[float]] = {}
+RATE_LIMIT_PER_MINUTE = int(os.getenv("GUARDIAN_RATE_LIMIT", "200"))
+
+
+async def _check_rate_limit(request: Request) -> None:
+    """Per-IP rate limiting middleware for evaluation endpoints."""
+    import time
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    window = _rate_limit_window.setdefault(client_ip, [])
+    # Prune entries older than 60s
+    _rate_limit_window[client_ip] = [t for t in window if now - t < 60]
+    window = _rate_limit_window[client_ip]
+    if len(window) >= RATE_LIMIT_PER_MINUTE:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: {RATE_LIMIT_PER_MINUTE} requests/minute",
+        )
+    window.append(now)
 
 
 @app.on_event("startup")
@@ -119,6 +163,12 @@ def startup() -> None:
     else:
         # Configure without proxy (dry-run mode for testing)
         configure_intune(_pipeline, None, _circuit_breaker)
+
+    # Configure Entra ID, MCP, and A2A adapters
+    configure_entra(_pipeline, _circuit_breaker)
+    configure_mcp(_pipeline, _circuit_breaker)
+    configure_a2a(_pipeline, _circuit_breaker)
+    logger.info("Adapters configured: Intune, Entra ID, MCP, A2A")
 
     if SHADOW_MODE:
         logger.info("Guardian running in SHADOW MODE — advisory only, no enforcement")
@@ -253,9 +303,10 @@ class HealthResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.post("/v1/evaluate", response_model=EvaluateResponse)
-def evaluate(
+async def evaluate(
     request: ActionRequest,
     _auth: None = Depends(verify_api_key),
+    _rate: None = Depends(_check_rate_limit),
 ) -> EvaluateResponse:
     """Submit an action request for governance evaluation."""
     pipeline = get_pipeline()
@@ -707,6 +758,21 @@ def graph_stats(
 def dashboard() -> FileResponse:
     """Serve the Guardian dashboard."""
     return FileResponse(str(_STATIC_DIR / "index.html"))
+
+
+@app.get("/metrics")
+def prometheus_metrics() -> Response:
+    """Prometheus-compatible metrics endpoint."""
+    return Response(
+        content=metrics.prometheus_text(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+@app.get("/v1/metrics")
+def metrics_json() -> dict:
+    """JSON metrics snapshot for dashboards."""
+    return metrics.snapshot()
 
 
 @app.get("/v1/health", response_model=HealthResponse)

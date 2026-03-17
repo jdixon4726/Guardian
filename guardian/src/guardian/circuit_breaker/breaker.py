@@ -58,13 +58,17 @@ class CircuitBreaker:
     Per-actor circuit breaker for destructive action velocity.
 
     Thread-safe. Designed to be shared across all adapters.
+    Optionally persists state to SQLite for crash recovery.
     """
 
-    def __init__(self, config: CircuitBreakerConfig | None = None):
+    def __init__(self, config: CircuitBreakerConfig | None = None, db_path: str | None = None):
         self.config = config or CircuitBreakerConfig()
         self._actors: dict[str, _ActorWindow] = defaultdict(_ActorWindow)
         self._lock = threading.Lock()
         self._trips: list[BreakerTrip] = []
+        self._db_path = db_path
+        if db_path:
+            self._init_persistence(db_path)
 
     def check(self, actor_name: str, action: str) -> tuple[bool, str | None]:
         """
@@ -157,6 +161,9 @@ class CircuitBreaker:
         self._trips.append(trip)
         logger.warning(reason)
 
+        if self._db_path:
+            self._persist_state(actor_name, "open")
+
         return False, reason
 
     def _cooldown_expired(self, window: _ActorWindow, now: datetime) -> bool:
@@ -188,3 +195,59 @@ class CircuitBreaker:
             if actor_name in self._actors:
                 self._actors[actor_name] = _ActorWindow()
                 logger.info("Circuit breaker manually reset for actor=%s", actor_name)
+                if self._db_path:
+                    self._persist_state(actor_name, "closed")
+
+    # ── Persistence ──────────────────────────────────────────────────────
+
+    def _init_persistence(self, db_path: str) -> None:
+        """Initialize SQLite persistence for crash recovery."""
+        import sqlite3
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS breaker_state (
+                actor_name  TEXT PRIMARY KEY,
+                state       TEXT NOT NULL,
+                tripped_at  TEXT,
+                trip_count  INTEGER DEFAULT 0,
+                updated_at  TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+        # Restore state from DB
+        cursor = conn.execute("SELECT actor_name, state, tripped_at, trip_count FROM breaker_state")
+        for row in cursor:
+            actor, state, tripped_at_str, trip_count = row
+            window = _ActorWindow()
+            window.state = BreakerState(state)
+            window.trip_count = trip_count or 0
+            if tripped_at_str:
+                window.tripped_at = datetime.fromisoformat(tripped_at_str)
+            self._actors[actor] = window
+
+        restored = len(self._actors)
+        if restored:
+            logger.info("Circuit breaker restored %d actor states from disk", restored)
+        conn.close()
+
+    def _persist_state(self, actor_name: str, state: str) -> None:
+        """Persist breaker state to SQLite."""
+        if not self._db_path:
+            return
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            window = self._actors.get(actor_name)
+            tripped_at = window.tripped_at.isoformat() if window and window.tripped_at else None
+            trip_count = window.trip_count if window else 0
+            conn.execute("""
+                INSERT OR REPLACE INTO breaker_state (actor_name, state, tripped_at, trip_count, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (actor_name, state, tripped_at, trip_count,
+                  datetime.now(timezone.utc).isoformat()))
+            conn.commit()
+            conn.close()
+        except Exception:
+            logger.debug("CB persistence write failed", exc_info=True)

@@ -70,10 +70,14 @@ class BaselineStore:
 
     def __init__(self, db_path: Path | str = ":memory:"):
         self._db_path = str(db_path)
-        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        self._conn = sqlite3.connect(self._db_path, check_same_thread=False,
+                                      autocommit=True)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.executescript(_SCHEMA)
+        for stmt in _SCHEMA.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                self._conn.execute(stmt)
         logger.info("Baseline store initialized: %s", self._db_path)
 
     def close(self) -> None:

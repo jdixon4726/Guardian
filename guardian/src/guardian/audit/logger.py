@@ -14,8 +14,10 @@ external stores (S3 Object Lock, Azure Immutable Blob, SIEM, etc.).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
@@ -82,13 +84,17 @@ class AuditLogger:
     """
 
     def __init__(self, log_path: Path,
-                 replication_sinks: list[AuditReplicationSink] | None = None):
+                 replication_sinks: list[AuditReplicationSink] | None = None,
+                 signing_key: str | None = None):
         self.log_path = log_path
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._last_hash: str = self._load_last_hash()
         self._sinks = replication_sinks or []
+        self._signing_key = signing_key or os.environ.get("GUARDIAN_AUDIT_SIGNING_KEY", "")
         if self._sinks:
             logger.info("Audit replication configured: %d sink(s)", len(self._sinks))
+        if self._signing_key:
+            logger.info("Audit log signing enabled (HMAC-SHA256)")
 
     def write(self, decision: Decision) -> Decision:
         """
@@ -101,8 +107,16 @@ class AuditLogger:
         entry_content = self._serialize_for_hashing(decision)
         decision.entry_hash = hashlib.sha256(entry_content.encode()).hexdigest()
 
+        # HMAC signature for non-repudiation (beyond hash chain)
+        entry_data = decision.model_dump(mode="json")
+        if self._signing_key:
+            sig_input = json.dumps(entry_data, sort_keys=True, default=str)
+            entry_data["entry_signature"] = hmac.new(
+                self._signing_key.encode(), sig_input.encode(), hashlib.sha256,
+            ).hexdigest()
+
         with open(self.log_path, "a", encoding="utf-8") as f:
-            f.write(decision.model_dump_json() + "\n")
+            f.write(json.dumps(entry_data, default=str) + "\n")
 
         self._last_hash = decision.entry_hash
         logger.debug("Audit entry written: %s hash=%s", decision.entry_id, decision.entry_hash)

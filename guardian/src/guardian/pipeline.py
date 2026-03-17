@@ -125,8 +125,47 @@ class GuardianPipeline:
         policy_context.update(assessment.to_policy_context())
         policy_verdict = self.policy_engine.evaluate(policy_context)
 
+        # Stage 4.5: Graph Context — check if actor is in an active cascade
+        cascade_risk = 0.0
+        cascade_signals = []
+        try:
+            recent_actor_events = self.graph_store.get_actor_events(
+                request.actor_name, limit=10,
+            )
+            if recent_actor_events:
+                # Count recent anomalous decisions from this actor
+                anomalous_count = sum(1 for e in recent_actor_events if e.get("is_anomalous"))
+                blocked_count = sum(1 for e in recent_actor_events
+                                    if e.get("decision") == "block")
+                if anomalous_count >= 3:
+                    cascade_risk = 0.15
+                    cascade_signals.append(RiskSignal(
+                        source="graph_context",
+                        description=(
+                            f"Actor has {anomalous_count} anomalous decisions "
+                            f"in recent history — possible compromised identity"
+                        ),
+                        contribution=0.15,
+                    ))
+                if blocked_count >= 5:
+                    cascade_risk = max(cascade_risk, 0.20)
+                    cascade_signals.append(RiskSignal(
+                        source="graph_context",
+                        description=(
+                            f"Actor has {blocked_count} recent blocks — "
+                            f"elevated cascade risk"
+                        ),
+                        contribution=0.20,
+                    ))
+        except Exception:
+            pass  # graph context is best-effort
+
         # Stage 5: Risk Scoring
         risk_score, risk_signals = self.risk_engine.score(context, drift_score=drift.score)
+        # Inject graph cascade signals
+        if cascade_risk > 0:
+            risk_score = min(1.0, risk_score + cascade_risk)
+            risk_signals.extend(cascade_signals)
 
         # Stage 6: Decision Engine
         risk_signals_summary = "; ".join(

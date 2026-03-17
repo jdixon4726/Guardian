@@ -761,6 +761,19 @@ class GraphStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_actor_events(self, actor_name: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Get recent decision events for an actor by name."""
+        rows = self._conn.execute(
+            """SELECT event_id, decision, risk_score, drift_score, is_anomalous,
+                      action_name, target_name, timestamp
+               FROM decision_events
+               WHERE actor_name = ?
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (actor_name, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_actor_systems(self, actor_id: str) -> list[str]:
         """Get all systems an actor has operated in."""
         rows = self._conn.execute(
