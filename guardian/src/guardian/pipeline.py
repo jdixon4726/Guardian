@@ -19,6 +19,8 @@ Stage order:
 from __future__ import annotations
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from guardian.attestation.attestor import ActorRegistry, IdentityAttestor
@@ -96,6 +98,12 @@ class GuardianPipeline:
         self.overlay_engine = OverlayEngine()
         self._baseline_job = BaselineRecomputeJob(self.baseline_store)
         self._baseline_job.start()
+
+        # Async executor for post-decision stages (7-10)
+        # These don't affect the decision — they record it for future context.
+        self._async_executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="guardian-post-decision",
+        )
 
     def evaluate(self, request: ActionRequest) -> Decision:
         logger.info(
@@ -220,30 +228,55 @@ class GuardianPipeline:
             compliance_tags=compliance_tags,
         )
 
-        # Stage 7: Audit Log
+        # Stage 7: Audit Log (synchronous — hash chain must be sequential)
         decision = self.audit_logger.write(decision)
 
-        # Stage 8: Record to Actor History Store
-        self.history_store.record(
-            actor_name=request.actor_name,
-            action_type=request.requested_action,
-            target_asset=request.target_asset,
-            decision=result.outcome.value,
-            risk_score=risk_score,
-            privilege_level=request.privilege_level.value,
-            timestamp=request.timestamp,
+        # Stages 8-10: Post-decision recording (async — doesn't affect the decision)
+        # The decision is returned immediately; recording happens in background.
+        self._async_executor.submit(
+            self._post_decision_stages,
+            request, decision, result.outcome, risk_score, drift, assessment,
         )
 
-        # Stage 9: Drift Alert Publishing (async, fire-and-forget)
-        if drift.alert_triggered:
-            self.alert_publisher.publish(
+        return decision
+
+    def _post_decision_stages(
+        self,
+        request: ActionRequest,
+        decision: Decision,
+        outcome: DecisionOutcome,
+        risk_score: float,
+        drift: DriftScore,
+        assessment,
+    ) -> None:
+        """Stages 8-10: run in background thread after decision is returned."""
+        # Stage 8: Record to Actor History Store
+        try:
+            self.history_store.record(
                 actor_name=request.actor_name,
                 action_type=request.requested_action,
-                drift_score=drift,
-                decision_entry_id=decision.entry_id,
+                target_asset=request.target_asset,
+                decision=outcome.value,
+                risk_score=risk_score,
+                privilege_level=request.privilege_level.value,
+                timestamp=request.timestamp,
             )
+        except Exception:
+            logger.warning("History recording failed (non-fatal)", exc_info=True)
 
-        # Stage 10: Decision Graph (cascade detection, blast radius tracking)
+        # Stage 9: Drift Alert Publishing
+        try:
+            if drift.alert_triggered:
+                self.alert_publisher.publish(
+                    actor_name=request.actor_name,
+                    action_type=request.requested_action,
+                    drift_score=drift,
+                    decision_entry_id=decision.entry_id,
+                )
+        except Exception:
+            logger.warning("Alert publishing failed (non-fatal)", exc_info=True)
+
+        # Stage 10: Decision Graph
         try:
             self.graph_builder.record_decision(
                 decision=decision,
@@ -252,8 +285,6 @@ class GuardianPipeline:
             )
         except Exception:
             logger.warning("Graph recording failed (non-fatal)", exc_info=True)
-
-        return decision
 
     @classmethod
     def from_config(cls, config_dir: Path, policies_dir: Path,
