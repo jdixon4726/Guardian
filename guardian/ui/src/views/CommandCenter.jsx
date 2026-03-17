@@ -94,7 +94,7 @@ function SystemObservability() {
 }
 
 // ── Connected Systems Panel (clickable, expandable) ─────────────────────────
-function ConnectedSystems({ decisions }) {
+function ConnectedSystems({ decisions, onSystemSelect }) {
   const { data, loading } = useApi('/v1/systems/connected', { autoRefresh: 30000 })
   const [expanded, setExpanded] = useState(null)
 
@@ -138,6 +138,19 @@ function ConnectedSystems({ decisions }) {
     return stats
   }
 
+  // Map adapter name → system tab name for filtering
+  const ADAPTER_TO_TAB = {
+    'terraform': 'Terraform',
+    'kubernetes': 'Kubernetes',
+    'intune': 'MDM/UEM',
+    'entra_id': 'Identity',
+    'jamf': 'MDM/UEM',
+    'github': 'CI/CD',
+    'aws_eventbridge': 'AWS',
+    'mcp': 'AI Agents',
+    'a2a': 'AI Agents',
+  }
+
   const ADAPTER_DOCS = {
     'terraform': { pattern: 'Async Callback', endpoint: '/v1/terraform/run-task', setup: 'Add as TFC Run Task' },
     'kubernetes': { pattern: 'Admission Webhook', endpoint: '/v1/kubernetes/admit', setup: 'Deploy ValidatingWebhookConfiguration' },
@@ -168,7 +181,14 @@ function ConnectedSystems({ decisions }) {
             <div
               key={sys.name || i}
               className="card"
-              onClick={() => setExpanded(isExpanded ? null : sys.name)}
+              onClick={() => {
+                setExpanded(isExpanded ? null : sys.name)
+                // Also filter the decision feed to this system
+                if (onSystemSelect && !isExpanded) {
+                  const tab = ADAPTER_TO_TAB[sys.adapter] || null
+                  onSystemSelect(tab)
+                }
+              }}
               style={{
                 padding: '10px 14px',
                 minWidth: isExpanded ? 320 : 160,
@@ -391,7 +411,7 @@ function ActionItems({ decisions, onNavigateToActor }) {
         severity: 'critical',
         icon: '\u26A0',
         title: `${highRiskReviews.length} high-risk action${highRiskReviews.length > 1 ? 's' : ''} awaiting review`,
-        desc: `Risk scores: ${highRiskReviews.map(d => d.risk_score.toFixed(2)).join(', ')}`,
+        desc: `Avg risk: ${(highRiskReviews.reduce((s, d) => s + d.risk_score, 0) / highRiskReviews.length).toFixed(2)} | ${[...new Set(highRiskReviews.map(d => d.actor_name))].slice(0, 3).join(', ')}`,
         cta: 'Investigate',
         actor: highRiskReviews[0].actor_name,
       })
@@ -551,7 +571,7 @@ export default function CommandCenter() {
       <SystemObservability />
 
       {/* Connected Systems — horizontal scroll */}
-      <ConnectedSystems decisions={data?.decisions} />
+      <ConnectedSystems decisions={data?.decisions} onSystemSelect={setActiveSystem} />
 
       {/* Action Items — "What needs my attention?" */}
       {data && (
